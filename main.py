@@ -9,27 +9,13 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
 print(f"BOT_TOKEN chargé ? {'OUI' if BOT_TOKEN else 'NON'}")
-if BOT_TOKEN:
-    print(f"Longueur BOT_TOKEN : {len(BOT_TOKEN)} caractères")
-    print(f" Début : {BOT_TOKEN[:15]}...")
-
 print(f"CHAT_ID chargé ? {'OUI' if CHAT_ID else 'NON'}")
-if CHAT_ID:
-    print(f"CHAT_ID : {CHAT_ID}")
 
-# Test envoi Telegram
-url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-message = f"<b>🧪 TEST DIAGNOSTIC</b>\nBot lancé à {datetime.now().strftime('%H:%M:%S')}\nVérifions si les secrets fonctionnent..."
-
-payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
-
-print("Envoi du message vers Telegram...")
-r = requests.post(url, json=payload)
-
-print(f"Status code : {r.status_code}")
-print(f"Réponse Telegram : {r.text}")
-
-if r.status_code == 200:
-    print("✅ Message envoyé avec succès !")
+if BOT_TOKEN and CHAT_ID:
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    message = f"<b>🧪 TEST DIAGNOSTIC {datetime.now().strftime('%H:%M')}</b>\nLe bot fonctionne !\nSecrets bien chargés."
+    r = requests.post(url, json={"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"})
+    print(f"Status code Telegram : {r.status_code}")
+    print(f"Réponse : {r.text}")
 else:
-    print("❌ ÉCHEC de l'envoi")
+    print("❌ Problème : BOT_TOKEN ou CHAT_ID non chargé")
