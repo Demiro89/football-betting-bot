@@ -8,34 +8,33 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ==================== CONFIG ====================
-API_KEY = os.getenv('API_FOOTBALL_KEY')
+API_KEY = os.getenv("API_FOOTBALL_KEY")
 if not API_KEY:
-    print('❌ Mets ta clé API_FOOTBALL_KEY dans le fichier .env')
-    print('Exemple : API_FOOTBALL_KEY=ta_cle_ici')
-    exit(1)
+    print("❌ Mets ta clé API dans le fichier .env")
+    exit()
 
-LEAGUE_ID = 61      # Ligue 1 France
+LEAGUE_ID = 61      # Ligue 1
 SEASON = 2025
 BASE_URL = "https://v3.football.api-sports.io"
 
 HEADERS = {"x-apisports-key": API_KEY}
 
 def api_get(endpoint, params=None):
-    if params is None:
-        params = {}
+    if params is None: params = {}
     r = requests.get(f"{BASE_URL}{endpoint}", headers=HEADERS, params=params)
     if r.status_code != 200:
         print(f"❌ Erreur API {r.status_code}")
-        print(r.text)
-        exit(1)
+        exit()
     return r.json().get("response", [])
 
-print("🔄 Récupération des données Ligue 1...")
+# ==================== RÉCUP DONNÉES ====================
+print("🔄 Récupération des matchs Ligue 1...")
 fixtures = api_get("/fixtures", {"league": LEAGUE_ID, "season": SEASON, "status": "NS"})
 past = api_get("/fixtures", {"league": LEAGUE_ID, "season": SEASON, "status": "FT"})
 
 print(f"✅ {len(fixtures)} matchs à venir | {len(past)} matchs terminés")
 
+# ==================== CALCUL LAMB DAS ====================
 def calculate_lambdas(past_matches):
     df = pd.DataFrame([{
         "home_team": m["teams"]["home"]["name"],
@@ -72,6 +71,7 @@ def calculate_lambdas(past_matches):
 
 lambdas_data = calculate_lambdas(past)
 
+# ==================== PRÉDICTION ====================
 def predict(home, away, n_sim=20000):
     h_attack = lambdas_data["attack"].get(home, lambdas_data["league_home_avg"])
     a_attack = lambdas_data["attack"].get(away, lambdas_data["league_away_avg"])
@@ -94,6 +94,7 @@ def predict(home, away, n_sim=20000):
         "proba_over_2.5": round(100 * np.mean(hg + ag > 2.5), 1)
     }
 
+# ==================== AFFICHAGE ====================
 print("\n🔥 PRÉDICTIONS PROCHAINS MATCHS LIGUE 1\n")
 for f in fixtures[:15]:
     h = f["teams"]["home"]["name"]

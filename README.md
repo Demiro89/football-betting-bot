@@ -1,28 +1,19 @@
-# Football Betting Bot - Value Betting
+# 🚀 Football Betting Bot - Modèle Poisson
 
-Bot intelligent pour trouver des **value bets** sur la FDJ (Ligue 1 et autres championnats).
+Bot de prédiction de matchs de Ligue 1 avec modèle Poisson + value betting.
 
-## Installation
+## Comment lancer sur GitHub Codespaces (cloud - sans rien installer)
 
-1. Clone le repo
-   ```bash
-   git clone https://github.com/Demiro89/football-betting-bot.git
-   cd football-betting-bot
-   ```
-
-2. Installe les dépendances
+1. Clique sur le bouton vert **Code** → **Open with Codespaces** → **Create codespace**
+2. Une fois ouvert, dans le terminal tape :
    ```bash
    pip install -r requirements.txt
-   ```
-
-3. Crée le fichier `.env` et mets ta clé :
-   ```env
-   API_FOOTBALL_KEY=ta_cle_ici
-   ```
-
-4. Lance le bot
-   ```bash
+   echo "API_FOOTBALL_KEY=0c54986bff16754cf8f6aa9b7214158a" > .env
    python main.py
    ```
 
-**Attention** : Ne jamais commiter ton fichier `.env` avec la vraie clé !
+Tout tourne dans le cloud gratuitement !
+
+## Étape 1 terminée ✅
+
+Prochaine : cotes FDJ + value betting.
