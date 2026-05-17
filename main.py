@@ -1,89 +1,35 @@
 import requests
-import pandas as pd
-import numpy as np
-from scipy.stats import poisson
-from datetime import datetime
 import os
+from datetime import datetime
 
-# ==================== CLÉS DEPUIS GITHUB SECRETS ====================
-API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY")
-THE_ODDS_API_KEY = os.getenv("THE_ODDS_API_KEY")
+print("=== DIAGNOSTIC TELEGRAM ===")
+print(f"Heure : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-def envoyer_telegram(message):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
-    try:
-        r = requests.post(url, json=payload)
-        if r.status_code == 200:
-            print("✅ Message envoyé sur Telegram")
-        else:
-            print(f"❌ Erreur Telegram : {r.status_code}")
-    except Exception as e:
-        print("❌ Erreur connexion Telegram :", e)
+print(f"BOT_TOKEN chargé ? {'OUI' if BOT_TOKEN else 'NON'}")
+if BOT_TOKEN:
+    print(f"Longueur BOT_TOKEN : {len(BOT_TOKEN)} caractères")
+    print(f" Début : {BOT_TOKEN[:15]}...")
 
-print(f"🚀 BOT VALUE BETTING DÉMARRÉ - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+print(f"CHAT_ID chargé ? {'OUI' if CHAT_ID else 'NON'}")
+if CHAT_ID:
+    print(f"CHAT_ID : {CHAT_ID}")
 
-LEAGUES = [39, 140, 78, 135, 61, 88, 94, 40]
-SEASON = 2025
-BOOKMAKER = "unibet"
+# Test envoi Telegram
+url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+message = f"<b>🧪 TEST DIAGNOSTIC</b>\nBot lancé à {datetime.now().strftime('%H:%M:%S')}\nVérifions si les secrets fonctionnent..."
 
-def api_football(endpoint, params=None):
-    if params is None: params = {}
-    r = requests.get(f"https://v3.football.api-sports.io{endpoint}",
-                     headers={"x-apisports-key": API_FOOTBALL_KEY}, params=params)
-    return r.json().get("response", []) if r.status_code == 200 else []
+payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
 
-def api_odds():
-    url = "https://api.the-odds-api.com/v4/sports/soccer_epl/soccer_la_liga/soccer_bundesliga/soccer_serie_a/soccer_ligue_one/soccer_eredivisie/soccer_primeira_liga/soccer_championship/odds"
-    params = {"apiKey": THE_ODDS_API_KEY, "regions": "eu", "markets": "h2h", "bookmakers": BOOKMAKER, "oddsFormat": "decimal"}
-    r = requests.get(url, params=params)
-    return r.json() if r.status_code == 200 else []
+print("Envoi du message vers Telegram...")
+r = requests.post(url, json=payload)
 
-value_bets = []
-odds_data = api_odds()
+print(f"Status code : {r.status_code}")
+print(f"Réponse Telegram : {r.text}")
 
-for league_id in LEAGUES:
-    fixtures = api_football("/fixtures", {"league": league_id, "season": SEASON, "status": "NS"})
-    past = api_football("/fixtures", {"league": league_id, "season": SEASON, "status": "FT"}) or \
-           api_football("/fixtures", {"league": league_id, "season": 2024, "status": "FT"})
-
-    df = pd.DataFrame([{"home": m["teams"]["home"]["name"], "away": m["teams"]["away"]["name"],
-                        "hg": m["goals"]["home"] or 0, "ag": m["goals"]["away"] or 0} for m in past])
-    
-    home_avg = df["hg"].mean() if len(df) > 0 else 1.4
-    away_avg = df["ag"].mean() if len(df) > 0 else 1.2
-
-    for f in fixtures:
-        home = f["teams"]["home"]["name"]
-        away = f["teams"]["away"]["name"]
-
-        lambda_home = home_avg * 1.05
-        lambda_away = away_avg * 0.95
-        hg_sim = poisson.rvs(lambda_home, size=20000)
-        ag_sim = poisson.rvs(lambda_away, size=20000)
-
-        proba1 = round(100 * np.mean(hg_sim > ag_sim), 1)
-        probaN = round(100 * np.mean(hg_sim == ag_sim), 1)
-        proba2 = round(100 * np.mean(hg_sim < ag_sim), 1)
-
-        cote1 = coteN = cote2 = None
-        for event in odds_data:
-            if home in str(event.get("home_team")) and away in str(event.get("away_team")):
-                for bm in event.get("bookmakers", []):
-                    if bm["key"] == BOOKMAKER:
-                        outcomes = bm.get("markets", [{}])[0].get("outcomes", [])
-                        cote1 = next((o["price"] for o in outcomes if o.get("name") == home), None)
-                        coteN = next((o["price"] for o in outcomes if o.get("name") == "Draw"), None)
-                        cote2 = next((o["price"] for o in outcomes if o.get("name") == away), None)
-                        break
-                break
-
-        if cote1 and coteN and cote2:
-            for pari, value, cote, proba in [("1", (proba1/100 * cote1) - 1, cote1, proba1),
-                                             ("N", (probaN/100 * coteN) - 1, coteN, probaN),
-                                             ("2", (proba2/100 * cote2) - 1, cote2, proba2)]:
-                if value > 0.06:
-                    mise = round(BANKROLL * MISE_PERCENT, 2) if 'BANKROLL' in globals() else 20
-                    value_bets.append({"Match": f"{home}
+if r.status_code == 200:
+    print("✅ Message envoyé avec succès !")
+else:
+    print("❌ ÉCHEC de l'envoi")
