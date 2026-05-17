@@ -1,17 +1,12 @@
-# Football Betting Bot
+# Football Betting Bot - Value Betting
 
-Bot intelligent de prédiction et value betting pour les matchs de football (focus Ligue 1).
-
-## Fonctionnalités actuelles
-- Récupération automatique des matchs à venir via API-Football
-- Calcul dynamique des lambdas (attaque/défense + forme récente)
-- Modèle Poisson + Monte Carlo pour probabilités 1N2 et Over/Under
+Bot intelligent pour trouver des **value bets** sur la FDJ (Ligue 1 et autres championnats).
 
 ## Installation
 
 1. Clone le repo
    ```bash
-git clone https://github.com/Demiro89/football-betting-bot.git
+   git clone https://github.com/Demiro89/football-betting-bot.git
    cd football-betting-bot
    ```
 
@@ -20,7 +15,7 @@ git clone https://github.com/Demiro89/football-betting-bot.git
    pip install -r requirements.txt
    ```
 
-3. Crée un fichier `.env` avec ta clé API :
+3. Crée le fichier `.env` et mets ta clé :
    ```env
    API_FOOTBALL_KEY=ta_cle_ici
    ```
@@ -30,10 +25,4 @@ git clone https://github.com/Demiro89/football-betting-bot.git
    python main.py
    ```
 
-## Prochaines étapes
-- Intégration des cotes FDJ
-- Détection automatique de value bets
-- Bankroll management
-- Interface Telegram
-
-Développé pour **battre la FDJ** sur le long terme.
+**Attention** : Ne jamais commiter ton fichier `.env` avec la vraie clé !
