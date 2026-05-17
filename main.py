@@ -13,9 +13,9 @@ print(f"CHAT_ID chargé ? {'OUI' if CHAT_ID else 'NON'}")
 
 if BOT_TOKEN and CHAT_ID:
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    message = f"<b>🧪 TEST DIAGNOSTIC {datetime.now().strftime('%H:%M')}</b>\nSecrets OK !\nLe bot fonctionne."
+    message = f"<b>🧪 TEST DIAGNOSTIC {datetime.now().strftime('%H:%M')}</b>\nSecrets OK ! Le bot fonctionne."
     r = requests.post(url, json={"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"})
     print(f"Status code : {r.status_code}")
     print(f"Réponse Telegram : {r.text}")
 else:
-    print("❌ Problème secrets non chargés")
+    print("❌ Problème : secrets non chargés")
