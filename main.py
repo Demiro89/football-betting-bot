@@ -2,106 +2,104 @@ import requests
 import pandas as pd
 import numpy as np
 from scipy.stats import poisson
+import time
+from datetime import datetime
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
+# ==================== CLÉS DEPUIS GITHUB SECRETS ====================
+API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY")
+THE_ODDS_API_KEY = os.getenv("THE_ODDS_API_KEY")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
-# ==================== CONFIG ====================
-API_KEY = os.getenv("API_FOOTBALL_KEY")
-if not API_KEY:
-    print("❌ Mets ta clé API dans le fichier .env")
-    exit()
+BANKROLL = 1000.0
+MISE_PERCENT = 0.02
 
-LEAGUE_ID = 61      # Ligue 1
+def envoyer_telegram(message):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
+    try:
+        requests.post(url, json=payload)
+        print("✅ Message Telegram envoyé")
+    except:
+        print("⚠️ Erreur Telegram")
+
+print("🚀 BOT VALUE BETTING 24/7 DÉMARRÉ (GitHub Actions)")
+
+LEAGUES = [39, 140, 78, 135, 61, 88, 94, 40]
 SEASON = 2025
-BASE_URL = "https://v3.football.api-sports.io"
+BOOKMAKER = "unibet"
 
-HEADERS = {"x-apisports-key": API_KEY}
-
-def api_get(endpoint, params=None):
+def api_football(endpoint, params=None):
     if params is None: params = {}
-    r = requests.get(f"{BASE_URL}{endpoint}", headers=HEADERS, params=params)
-    if r.status_code != 200:
-        print(f"❌ Erreur API {r.status_code}")
-        exit()
-    return r.json().get("response", [])
+    r = requests.get(f"https://v3.football.api-sports.io{endpoint}",
+                     headers={"x-apisports-key": API_FOOTBALL_KEY}, params=params)
+    return r.json().get("response", []) if r.status_code == 200 else []
 
-# ==================== RÉCUP DONNÉES ====================
-print("🔄 Récupération des matchs Ligue 1...")
-fixtures = api_get("/fixtures", {"league": LEAGUE_ID, "season": SEASON, "status": "NS"})
-past = api_get("/fixtures", {"league": LEAGUE_ID, "season": SEASON, "status": "FT"})
+def api_odds():
+    url = "https://api.the-odds-api.com/v4/sports/soccer_epl/soccer_la_liga/soccer_bundesliga/soccer_serie_a/soccer_ligue_one/soccer_eredivisie/soccer_primeira_liga/soccer_championship/odds"
+    params = {"apiKey": THE_ODDS_API_KEY, "regions": "eu", "markets": "h2h", "bookmakers": BOOKMAKER, "oddsFormat": "decimal"}
+    r = requests.get(url, params=params)
+    return r.json() if r.status_code == 200 else []
 
-print(f"✅ {len(fixtures)} matchs à venir | {len(past)} matchs terminés")
+# ====================== BOUCLE PRINCIPALE ======================
+value_bets = []
+odds_data = api_odds()
 
-# ==================== CALCUL LAMB DAS ====================
-def calculate_lambdas(past_matches):
-    df = pd.DataFrame([{
-        "home_team": m["teams"]["home"]["name"],
-        "away_team": m["teams"]["away"]["name"],
-        "home_goals": m["goals"]["home"] or 0,
-        "away_goals": m["goals"]["away"] or 0
-    } for m in past_matches])
+for league_id in LEAGUES:
+    fixtures = api_football("/fixtures", {"league": league_id, "season": SEASON, "status": "NS"})
+    past = api_football("/fixtures", {"league": league_id, "season": SEASON, "status": "FT"}) or \
+           api_football("/fixtures", {"league": league_id, "season": 2024, "status": "FT"})
 
-    league_home_avg = df["home_goals"].mean()
-    league_away_avg = df["away_goals"].mean()
+    df = pd.DataFrame([{"home": m["teams"]["home"]["name"], "away": m["teams"]["away"]["name"],
+                        "hg": m["goals"]["home"] or 0, "ag": m["goals"]["away"] or 0} for m in past])
+    
+    home_avg = df["hg"].mean() if len(df) > 0 else 1.4
+    away_avg = df["ag"].mean() if len(df) > 0 else 1.2
 
-    attack = pd.concat([
-        df[["home_team", "home_goals"]].rename(columns={"home_team":"team","home_goals":"goals"}),
-        df[["away_team", "away_goals"]].rename(columns={"away_team":"team","away_goals":"goals"})
-    ]).groupby("team")["goals"].mean()
+    for f in fixtures:
+        home = f["teams"]["home"]["name"]
+        away = f["teams"]["away"]["name"]
 
-    recent_form = {}
-    for team in set(df["home_team"]) | set(df["away_team"]):
-        team_matches = df[(df["home_team"] == team) | (df["away_team"] == team)].tail(8)
-        if len(team_matches) == 0:
-            recent_form[team] = 1.0
-            continue
-        weights = np.exp(np.linspace(-2, 0, len(team_matches)))
-        weights /= weights.sum()
-        scored = team_matches.apply(lambda r: r["home_goals"] if r["home_team"] == team else r["away_goals"], axis=1)
-        recent_form[team] = (scored * weights).mean() / (league_home_avg if team_matches["home_team"].iloc[0] == team else league_away_avg)
+        lambda_home = home_avg * 1.05
+        lambda_away = away_avg * 0.95
+        hg_sim = poisson.rvs(lambda_home, size=20000)
+        ag_sim = poisson.rvs(lambda_away, size=20000)
 
-    return {
-        "league_home_avg": league_home_avg,
-        "league_away_avg": league_away_avg,
-        "attack": attack.to_dict(),
-        "recent_form": recent_form
-    }
+        proba1 = round(100 * np.mean(hg_sim > ag_sim), 1)
+        probaN = round(100 * np.mean(hg_sim == ag_sim), 1)
+        proba2 = round(100 * np.mean(hg_sim < ag_sim), 1)
 
-lambdas_data = calculate_lambdas(past)
+        cote1 = coteN = cote2 = None
+        for event in odds_data:
+            if home in str(event.get("home_team")) and away in str(event.get("away_team")):
+                for bm in event.get("bookmakers", []):
+                    if bm["key"] == BOOKMAKER:
+                        outcomes = bm.get("markets", [{}])[0].get("outcomes", [])
+                        cote1 = next((o["price"] for o in outcomes if o.get("name") == home), None)
+                        coteN = next((o["price"] for o in outcomes if o.get("name") == "Draw"), None)
+                        cote2 = next((o["price"] for o in outcomes if o.get("name") == away), None)
+                        break
+                break
 
-# ==================== PRÉDICTION ====================
-def predict(home, away, n_sim=20000):
-    h_attack = lambdas_data["attack"].get(home, lambdas_data["league_home_avg"])
-    a_attack = lambdas_data["attack"].get(away, lambdas_data["league_away_avg"])
-    h_form = lambdas_data["recent_form"].get(home, 1.0)
-    a_form = lambdas_data["recent_form"].get(away, 1.0)
+        if cote1 and coteN and cote2:
+            for pari, value, cote, proba in [("1", (proba1/100 * cote1) - 1, cote1, proba1),
+                                             ("N", (probaN/100 * coteN) - 1, coteN, probaN),
+                                             ("2", (proba2/100 * cote2) - 1, cote2, proba2)]:
+                if value > 0.06:
+                    mise = round(BANKROLL * MISE_PERCENT, 2)
+                    value_bets.append({"Match": f"{home} vs {away}", "Pari": pari, "Cote": cote,
+                                       "Value %": round(value*100, 1), "Mise €": mise})
 
-    lambda_home = h_attack * a_form * lambdas_data["league_home_avg"] / 1.4
-    lambda_away = a_attack * h_form * lambdas_data["league_away_avg"] / 1.4
+if value_bets:
+    df = pd.DataFrame(value_bets).sort_values("Value %", ascending=False)
+    message = f"<b>🔥 VALUE BETS DÉTECTÉS ({len(df)})</b>\n\n"
+    for _, row in df.iterrows():
+        message += f"📅 {row['Match']}\n   {row['Pari']} @ {row['Cote']} → +{row['Value %']}%\n   Mise : {row['Mise €']} €\n\n"
+    message += f"💰 Bankroll : {BANKROLL:.2f} €"
+    envoyer_telegram(message)
+    print("✅ Alertes envoyées sur Telegram")
+else:
+    print("ℹ️ Aucun value bet > 6% cette fois")
 
-    hg = poisson.rvs(lambda_home, size=n_sim)
-    ag = poisson.rvs(lambda_away, size=n_sim)
-
-    return {
-        "match": f"{home} vs {away}",
-        "lambda_home": round(lambda_home, 2),
-        "lambda_away": round(lambda_away, 2),
-        "proba_1": round(100 * np.mean(hg > ag), 1),
-        "proba_N": round(100 * np.mean(hg == ag), 1),
-        "proba_2": round(100 * np.mean(hg < ag), 1),
-        "proba_over_2.5": round(100 * np.mean(hg + ag > 2.5), 1)
-    }
-
-# ==================== AFFICHAGE ====================
-print("\n🔥 PRÉDICTIONS PROCHAINS MATCHS LIGUE 1\n")
-for f in fixtures[:15]:
-    h = f["teams"]["home"]["name"]
-    a = f["teams"]["away"]["name"]
-    date = f["fixture"]["date"][:16]
-    p = predict(h, a)
-    print(f"📅 {date} | {p['match']}")
-    print(f"   Buts attendus : {p['lambda_home']} - {p['lambda_away']}")
-    print(f"   1 : {p['proba_1']}% | N : {p['proba_N']}% | 2 : {p['proba_2']}% | Over 2.5 : {p['proba_over_2.5']}%")
-    print("-"*70)
+print("✅ Exécution terminée - GitHub Action OK")
