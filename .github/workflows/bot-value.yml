@@ -1,28 +1,49 @@
-name: Bot Value Betting FDJ/Unibet
+name: Bot Value Betting
 
 on:
   schedule:
-    - cron: '0 * * * *'   # Toutes les heures
+    # Le bot tourne en autonomie 2x/jour (08h et 20h UTC).
+    # Quota The Odds API : 5 ligues x 2 runs x ~31 jours = ~310 requetes/mois,
+    # sous le palier gratuit de 500. Pour plus de frequence ou de ligues, il
+    # faut un plan The Odds API payant (voir README). La deduplication garantit
+    # qu'un meme pari n'est notifie qu'une fois quelle que soit la frequence.
+    - cron: '0 8,20 * * *'
   workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-    - name: Install dependencies
-      run: pip install requests pandas numpy scipy
+      - name: Restaurer le cache des statistiques
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: betbot-cache-${{ github.run_id }}
+          restore-keys: |
+            betbot-cache-
 
-    - name: Run the bot
-      env:
-        API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
-        THE_ODDS_API_KEY: ${{ secrets.THE_ODDS_API_KEY }}
-        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-        CHAT_ID: ${{ secrets.CHAT_ID }}
-      run: python main.py
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run the bot
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          THE_ODDS_API_KEY: ${{ secrets.THE_ODDS_API_KEY }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python main.py
+
+      - name: Archiver le journal des paris
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bets-log
+          path: .cache/bets_log.csv
+          if-no-files-found: ignore
