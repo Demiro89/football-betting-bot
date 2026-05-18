@@ -5,6 +5,7 @@ from scipy.stats import poisson
 from datetime import datetime
 import os
 import time
+import csv
 
 # ==================== CONFIG ====================
 API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY")
@@ -19,7 +20,7 @@ LEAGUES = [39, 140, 78, 135, 61, 88, 94, 40, 144, 95, 136, 79]
 SEASON = 2025
 BOOKMAKER = "unibet"
 
-# Cache pour les stats xG
+# Cache
 xg_cache = {}
 xg_cache_time = {}
 
@@ -54,6 +55,22 @@ def get_team_xg_stats(league_id, team_id, season):
         return xg_for, xg_against
     return 1.3, 1.3
 
+def get_weather(city):
+    """Récupère la météo via Open-Meteo (gratuit)"""
+    try:
+        url = f"https://api.open-meteo.com/v1/forecast?latitude=48.8566&longitude=2.3522&current_weather=true"
+        # Note: Remplace les coordonnées par celles de la ville du match
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            weather = r.json().get("current_weather", {})
+            temp = weather.get("temperature", 15)
+            wind = weather.get("windspeed", 10)
+            rain = weather.get("rain", 0)
+            return temp, wind, rain
+    except:
+        pass
+    return 15, 10, 0
+
 def envoyer_telegram(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
@@ -72,7 +89,18 @@ def kelly_criterion_optimized(value, proba, bankroll, max_bet_percent=0.05):
     max_bet = round(bankroll * max_bet_percent)
     return min(bet_amount, max_bet)
 
-print(f"🚀 BOT PRO FINAL DÉMARRÉ - {datetime.now().strftime('%H:%M')} | Bankroll: {BANKROLL}€ | Seuil: {MIN_VALUE_PERCENT}%")
+def save_bet_to_history(bet_data):
+    """Sauvegarde le pari dans l'historique CSV"""
+    file_path = "roi_history.csv"
+    file_exists = os.path.isfile(file_path)
+    
+    with open(file_path, 'a', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=['date', 'match', 'bet', 'odds', 'value_percent', 'stake', 'result', 'profit'])
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(bet_data)
+
+print(f"🚀 BOT PRO FINAL xG + MÉTÉO + ROI DÉMARRÉ - {datetime.now().strftime('%H:%M')} | Bankroll: {BANKROLL}€")
 
 value_bets = []
 odds_data = api_odds()
@@ -89,8 +117,16 @@ for league_id in LEAGUES:
         home_xg, home_xga = get_team_xg_stats(league_id, home_id, SEASON)
         away_xg, away_xga = get_team_xg_stats(league_id, away_id, SEASON)
 
-        lambda_home = (home_xg * 0.7 + home_xga * 0.3) * 1.05
-        lambda_away = (away_xg * 0.7 + away_xga * 0.3) * 0.95
+        # Météo (simplifié - utilise Paris comme référence)
+        temp, wind, rain = get_weather("Paris")
+        weather_adjustment = 0
+        if rain > 5:
+            weather_adjustment = -0.2
+        elif wind > 30:
+            weather_adjustment = 0.1
+
+        lambda_home = (home_xg * 0.7 + home_xga * 0.3) * 1.05 + weather_adjustment
+        lambda_away = (away_xg * 0.7 + away_xga * 0.3) * 0.95 - weather_adjustment
 
         hg_sim = poisson.rvs(lambda_home, size=20000)
         ag_sim = poisson.rvs(lambda_away, size=20000)
@@ -126,18 +162,19 @@ for league_id in LEAGUES:
                         "Proba %": proba
                     })
 
+# ==================== MESSAGE TELEGRAM ====================
 if value_bets:
     df = pd.DataFrame(value_bets).sort_values("Value %", ascending=False)
-    message = f"<b>🔥 {len(df)} VALUE BETS DÉTECTÉS</b>\n\n"
+    message = f"<b>🔥 {len(df)} VALUE BETS xG + MÉTÉO</b>\n\n"
     for _, row in df.iterrows():
         message += f"📅 <b>{row['Match']}</b>\n"
         message += f"   🎯 <b>{row['Pari']}</b> @ {row['Cote']} → <b>+{row['Value %']}%</b>\n"
         message += f"   💰 Mise : <b>{row['Mise €']} €</b> | Proba: {row['Proba %']}%\n\n"
     message += f"💼 Bankroll : <b>{BANKROLL} €</b>"
 else:
-    message = f"<b>ℹ️ Bot exécuté à {datetime.now().strftime('%H:%M')}</b>\n"
+    message = f"<b>ℹ️ Bot xG + Météo exécuté à {datetime.now().strftime('%H:%M')}</b>\n"
     message += f"Aucun value bet > {MIN_VALUE_PERCENT}% trouvé cette heure.\n"
-    message += "Le bot tourne correctement 24/7."
+    message += "Le bot tourne correctement 24/7 avec données avancées."
 
 envoyer_telegram(message)
-print("✅ Message envoyé sur Telegram")
+print("✅ Message envoyé sur Telegram (xG + Météo + ROI)")
