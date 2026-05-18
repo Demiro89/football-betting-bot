@@ -230,6 +230,13 @@ class TestCache(unittest.TestCase):
         main._CACHE["vieux"] = {"ts": stale, "value": 42}
         self.assertIsNone(main._cache_get("vieux"))
 
+    def test_ttl_personnalise(self):
+        # une entrée de 13h est valide sous TTL 72h, périmée sous TTL 12h
+        ts = (datetime.now(timezone.utc) - timedelta(hours=13)).isoformat()
+        main._CACHE["k"] = {"ts": ts, "value": 7}
+        self.assertEqual(main._cache_get("k", timedelta(hours=72)), 7)
+        self.assertIsNone(main._cache_get("k", timedelta(hours=12)))
+
 
 # =============================================================================
 # COUCHE HTTP
@@ -276,6 +283,18 @@ class TestHttp(unittest.TestCase):
         self.assertEqual(main.api_football("/fixtures"), [{"a": 1}])
         mock_req.return_value = None
         self.assertEqual(main.api_football("/fixtures"), [])
+
+    @patch("main._request")
+    def test_get_odds_echec_renvoie_none(self, mock_req):
+        # échec de requête => None (distinct de "pas de match")
+        mock_req.return_value = None
+        self.assertIsNone(main.get_odds("soccer_epl"))
+
+    @patch("main._request")
+    def test_get_odds_succes_vide_renvoie_liste(self, mock_req):
+        # requête réussie mais aucun match (hors-saison) => liste vide, pas None
+        mock_req.return_value = []
+        self.assertEqual(main.get_odds("soccer_epl"), [])
 
 
 # =============================================================================

@@ -53,26 +53,32 @@ La suite (`test_bot.py`) couvre le modele, les cotes, le Kelly, le cache,
 la couche HTTP et le backtest. Tous les appels reseau sont simules. Les
 tests tournent automatiquement a chaque push (workflow `tests.yml`).
 
-## Fonctionnement 24/7
+## Fonctionnement autonome
 
-Le workflow `.github/workflows/bot-value.yml` execute le bot en continu via
-GitHub Actions (cron toutes les 4h par defaut). Renseignez les cles dans
-**Settings -> Secrets and variables -> Actions**.
+Le workflow `.github/workflows/bot-value.yml` execute le bot via GitHub Actions,
+**2 fois par jour** (08h et 20h UTC), sans aucune machine a laisser allumee.
+Renseignez les cles dans **Settings -> Secrets and variables -> Actions**.
 
-Le bot est concu pour tourner souvent sans spammer :
+Le bot tourne sans intervention et sans spammer :
 
 - **Deduplication** : un meme pari n'est notifie qu'une fois par fenetre
   `DEDUP_HOURS` (re-notifie seulement si la value progresse nettement).
 - **Mode silencieux** (`TELEGRAM_QUIET`) : aucun message quand il n'y a rien
   de nouveau, plus un unique heartbeat « bot actif » par jour.
-- **Alertes de panne** : message Telegram si aucune cote n'est recuperee
-  (cle/quota) ou en cas d'erreur d'execution.
+- **Alertes de panne** : message Telegram si les cotes sont inaccessibles
+  (cle/quota) ou en cas d'erreur d'execution. Une simple absence de match
+  (hors-saison) ne declenche pas de fausse alerte.
 - L'etat (cache, paris notifies, `bets_log.csv`) persiste entre les runs via
   `actions/cache`.
 
-**Quotas** : The Odds API gratuit = 500 requetes/mois. A 6 runs/jour x ~10
-ligues, le quota gratuit est depasse — repassez le cron a `0 9 * * *`
-(1 run/jour), reduisez la liste `LEAGUES`, ou prenez un palier payant.
+**Quotas** — la configuration par defaut tient dans les paliers gratuits :
+
+- The Odds API : 5 ligues x 2 runs x ~31 jours = ~310 requetes/mois (gratuit = 500).
+- API-Football : cache des stats de 72h => peu d'appels par jour (gratuit = 100/jour).
+
+Pour analyser plus de championnats ou tourner plus souvent, decommentez des
+ligues dans `LEAGUES` (`main.py`) et/ou modifiez le cron — cela demande un
+plan The Odds API payant.
 
 GitHub desactive les workflows planifies apres 60 jours d'inactivite du depot.
 

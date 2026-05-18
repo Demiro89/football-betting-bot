@@ -2,12 +2,12 @@ name: Bot Value Betting
 
 on:
   schedule:
-    # Fonctionnement 24/7 : le bot tourne toutes les 4h (6 fois/jour).
-    # COUT API : The Odds API gratuit = 500 requetes/mois ; 6 runs x ~10 ligues
-    # => ~1800/mois. Pour rester sur le palier gratuit, repassez a 1 run/jour
-    # ('0 9 * * *') ou reduisez la liste LEAGUES dans main.py. La deduplication
-    # garantit qu'un meme pari n'est notifie qu'une fois quelle que soit la frequence.
-    - cron: '0 */4 * * *'
+    # Le bot tourne en autonomie 2x/jour (08h et 20h UTC).
+    # Quota The Odds API : 5 ligues x 2 runs x ~31 jours = ~310 requetes/mois,
+    # sous le palier gratuit de 500. Pour plus de frequence ou de ligues, il
+    # faut un plan The Odds API payant (voir README). La deduplication garantit
+    # qu'un meme pari n'est notifie qu'une fois quelle que soit la frequence.
+    - cron: '0 8,20 * * *'
   workflow_dispatch:
 
 jobs:

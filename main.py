@@ -79,19 +79,20 @@ TELEGRAM_QUIET = os.getenv("TELEGRAM_QUIET", "true").lower() in ("1", "true", "y
 DEDUP_HOURS = _env_float("DEDUP_HOURS", 24.0)
 
 # API-Football league id -> The Odds API sport key.
-# À vérifier sur vos dashboards : un id/clé erroné renvoie simplement 0 cote
-# pour ce championnat sans bloquer le reste du bot.
+# 5 grands championnats : dimensionné pour rester sous le quota gratuit
+# The Odds API (voir README). Pour en ajouter, décommentez ci-dessous — chaque
+# ligue coûte 1 requête The Odds API par exécution.
 LEAGUES: dict[int, str] = {
-    39: "soccer_epl",                      # Premier League (Angleterre)
-    140: "soccer_spain_la_liga",           # La Liga (Espagne)
-    78: "soccer_germany_bundesliga",       # Bundesliga (Allemagne)
-    135: "soccer_italy_serie_a",           # Serie A (Italie)
-    61: "soccer_france_ligue_one",         # Ligue 1 (France)
-    88: "soccer_netherlands_eredivisie",   # Eredivisie (Pays-Bas)
-    94: "soccer_portugal_primeira_liga",   # Primeira Liga (Portugal)
-    40: "soccer_efl_champ",                # Championship (Angleterre)
-    144: "soccer_belgium_first_div",       # Jupiler Pro League (Belgique)
-    79: "soccer_germany_bundesliga2",      # 2. Bundesliga (Allemagne)
+    39: "soccer_epl",                  # Premier League (Angleterre)
+    140: "soccer_spain_la_liga",       # La Liga (Espagne)
+    78: "soccer_germany_bundesliga",   # Bundesliga (Allemagne)
+    135: "soccer_italy_serie_a",       # Serie A (Italie)
+    61: "soccer_france_ligue_one",     # Ligue 1 (France)
+    # 88: "soccer_netherlands_eredivisie",   # Eredivisie (Pays-Bas)
+    # 94: "soccer_portugal_primeira_liga",   # Primeira Liga (Portugal)
+    # 40: "soccer_efl_champ",                # Championship (Angleterre)
+    # 144: "soccer_belgium_first_div",       # Jupiler Pro League (Belgique)
+    # 79: "soccer_germany_bundesliga2",      # 2. Bundesliga (Allemagne)
 }
 
 # Joueurs clés par id d'équipe API-Football. Sert à pénaliser lambda en cas
@@ -128,7 +129,9 @@ ODDS_BASE = "https://api.the-odds-api.com/v4/sports"
 # Cache persistant (réutilisé entre runs via actions/cache dans le workflow)
 CACHE_DIR = Path(".cache")
 CACHE_FILE = CACHE_DIR / "stats.json"
-CACHE_TTL = timedelta(hours=12)
+CACHE_TTL = timedelta(hours=12)            # TTL générique par défaut
+STRENGTH_TTL = timedelta(hours=72)         # forces d'équipe : évoluent lentement
+INJURY_TTL = timedelta(hours=12)           # blessures : on veut de la fraîcheur
 DEDUP_TTL = timedelta(hours=DEDUP_HOURS)   # un même pari n'est notifié qu'une fois par fenêtre
 REVALUE_MARGIN = 2.0                       # points de value en plus pour re-notifier un pari
 BETS_LOG = CACHE_DIR / "bets_log.csv"      # dans .cache pour persister entre runs (actions/cache)
@@ -157,15 +160,15 @@ def _save_cache(cache: dict) -> None:
 _CACHE: dict = _load_cache()
 
 
-def _cache_get(key: str):
+def _cache_get(key: str, ttl: timedelta = CACHE_TTL):
     entry = _CACHE.get(key)
-    if not entry:
+    if not isinstance(entry, dict) or "value" not in entry:
         return None
     try:
         ts = datetime.fromisoformat(entry["ts"])
     except (KeyError, ValueError):
         return None
-    if datetime.now(timezone.utc) - ts > CACHE_TTL:
+    if datetime.now(timezone.utc) - ts > ttl:
         return None
     return entry["value"]
 
@@ -176,7 +179,7 @@ def _cache_set(key: str, value) -> None:
 
 def _prune_cache() -> None:
     """Supprime les entrées périmées pour que le cache ne grossisse pas indéfiniment."""
-    horizon = datetime.now(timezone.utc) - max(CACHE_TTL, DEDUP_TTL)
+    horizon = datetime.now(timezone.utc) - max(STRENGTH_TTL, INJURY_TTL, DEDUP_TTL)
     stale = []
     for key, entry in _CACHE.items():
         if not isinstance(entry, dict) or "ts" not in entry:
@@ -258,7 +261,7 @@ def _to_float(value):
 def get_team_strength(league_id: int, team_id: int, season: int) -> TeamStrength:
     """Force offensive/défensive d'une équipe (avec cache)."""
     key = f"strength:{league_id}:{team_id}:{season}"
-    cached = _cache_get(key)
+    cached = _cache_get(key, STRENGTH_TTL)
     if cached is not None:
         return TeamStrength(**cached)
 
@@ -303,7 +306,7 @@ def key_players_out(team_id: int, season: int) -> int:
         return 0
 
     key = f"injuries:{team_id}:{season}"
-    names = _cache_get(key)
+    names = _cache_get(key, INJURY_TTL)
     if names is None:
         resp = api_football("/injuries", {"team": team_id, "season": season})
         names = [item.get("player", {}).get("name", "") for item in resp]
@@ -380,8 +383,9 @@ def market_probabilities(lambda_home: float, lambda_away: float) -> dict[str, fl
 # =============================================================================
 # COTES
 # =============================================================================
-def get_odds(sport_key: str) -> list:
-    """Cotes d'un championnat via The Odds API (h2h, plus totals si activé)."""
+def get_odds(sport_key: str) -> list | None:
+    """Cotes d'un championnat via The Odds API. Renvoie None si la requête
+    échoue, une liste (éventuellement vide) si elle réussit."""
     data = _request(
         f"{ODDS_BASE}/{sport_key}/odds",
         params={
@@ -391,6 +395,8 @@ def get_odds(sport_key: str) -> list:
             "oddsFormat": "decimal",
         },
     )
+    if data is None:
+        return None
     return data if isinstance(data, list) else []
 
 
@@ -528,6 +534,7 @@ def log_bets(bets: list[dict]) -> None:
     """Ajoute les paris détectés à un CSV pour permettre le suivi du ROI."""
     header = "timestamp,match,pari,cote,proba_modele,proba_marche,value_pct,mise\n"
     try:
+        CACHE_DIR.mkdir(exist_ok=True)
         is_new = not BETS_LOG.exists()
         with BETS_LOG.open("a", encoding="utf-8") as f:
             if is_new:
@@ -658,12 +665,15 @@ def main() -> None:
     date_to = (now + timedelta(days=DAYS_AHEAD)).date().isoformat()
 
     all_bets: list[dict] = []
-    total_odds_events = 0
+    odds_failures = 0
     for league_id, sport_key in LEAGUES.items():
         odds_events = get_odds(sport_key)
-        total_odds_events += len(odds_events)
+        if odds_events is None:
+            odds_failures += 1
+            log.warning("Ligue %d (%s) : échec de récupération des cotes", league_id, sport_key)
+            continue
         if not odds_events:
-            log.info("Ligue %d (%s) : aucune cote disponible", league_id, sport_key)
+            log.info("Ligue %d (%s) : aucun match coté actuellement", league_id, sport_key)
             continue
 
         fixtures = api_football("/fixtures", {
@@ -682,10 +692,11 @@ def main() -> None:
             except Exception as exc:  # un match cassé ne doit pas tuer le run
                 log.warning("Analyse d'un match échouée : %s", exc)
 
-    if total_odds_events == 0:
-        log.error("Aucune cote récupérée sur l'ensemble des championnats")
-        send_telegram("<b>⚠️ Bot : aucune cote récupérée</b>\n"
-                      "Vérifiez THE_ODDS_API_KEY et le quota The Odds API.")
+    if odds_failures == len(LEAGUES):
+        log.error("Échec de récupération des cotes sur tous les championnats")
+        send_telegram("<b>⚠️ Bot : cotes inaccessibles</b>\n"
+                      "Toutes les requêtes The Odds API ont échoué — "
+                      "vérifiez THE_ODDS_API_KEY et le quota.")
         _prune_cache()
         _save_cache(_CACHE)
         return
