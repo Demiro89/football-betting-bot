@@ -15,7 +15,8 @@ BANKROLL = float(os.getenv("BANKROLL", 1000))
 MIN_VALUE_PERCENT = float(os.getenv("MIN_VALUE_PERCENT", 6))
 MISE_PERCENT = 0.02
 
-LEAGUES = [39, 140, 78, 135, 61, 88, 94, 40, 61, 144]  # + Ligue 2 + Championship
+# 12 championnats
+LEAGUES = [39, 140, 78, 135, 61, 88, 94, 40, 144, 95, 136, 79]
 SEASON = 2025
 BOOKMAKER = "unibet"
 
@@ -32,7 +33,7 @@ def kelly_criterion(value, proba):
     kelly = (b * p - q) / b
     return max(0, min(kelly, 0.05))
 
-print(f"🚀 BOT PRO DÉMARRÉ - {datetime.now().strftime('%H:%M')} | Bankroll: {BANKROLL}€ | Seuil: {MIN_VALUE_PERCENT}%")
+print(f"🚀 BOT PRO DÉMARRÉ - {datetime.now().strftime('%H:%M')} | Bankroll: {BANKROLL}€ | Seuil: {MIN_VALUE_PERCENT}% | 12 championnats")
 
 value_bets = []
 odds_data = api_odds()
