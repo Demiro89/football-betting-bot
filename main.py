@@ -254,7 +254,8 @@ def get_team_strength(league_id: int, team_id: int, season: int) -> TeamStrength
     def avg(side: str, where: str, fallback: float) -> float:
         # side = "for" | "against" ; where = "home" | "away"
         node = goals.get(side, {}).get("average", {})
-        return _to_float(node.get(where)) or fallback
+        value = _to_float(node.get(where))
+        return value if value is not None else fallback
 
     strength = TeamStrength(
         attack_home=avg("for", "home", DEFAULT_STRENGTH.attack_home),
@@ -457,7 +458,7 @@ def kelly_stake(prob: float, odds: float, bankroll: float) -> float:
     stake = bankroll * fraction
     if stake < MIN_BET:
         return 0.0
-    return round(stake, 2)
+    return round(float(stake), 2)
 
 
 # =============================================================================
@@ -557,10 +558,10 @@ def analyse_fixture(fixture: dict, league_id: int, season: int, odds_events: lis
         bets.append({
             "match": f"{home_name} vs {away_name}",
             "pari": SELECTION_LABELS.get(selection, selection),
-            "cote": round(odd, 2),
-            "proba": round(prob * 100, 1),
-            "market_prob": round(market.get(selection, 0.0) * 100, 1),
-            "value_pct": round(value * 100, 1),
+            "cote": round(float(odd), 2),
+            "proba": round(float(prob) * 100, 1),
+            "market_prob": round(float(market.get(selection, 0.0)) * 100, 1),
+            "value_pct": round(float(value) * 100, 1),
             "stake": stake,
         })
     return bets

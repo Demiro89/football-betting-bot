@@ -41,6 +41,16 @@ donnees) et compare le modele a une baseline de frequences de base
 (score de Brier, log-loss, calibration). Un modele qui ne bat pas la
 baseline ne peut pas etre rentable.
 
+## Tests
+
+```bash
+python -m unittest discover -v
+```
+
+La suite (`test_bot.py`) couvre le modele, les cotes, le Kelly, le cache,
+la couche HTTP et le backtest. Tous les appels reseau sont simules. Les
+tests tournent automatiquement a chaque push (workflow `tests.yml`).
+
 ## Automatisation
 
 Le workflow `.github/workflows/bot-value.yml` execute le bot via GitHub Actions.
