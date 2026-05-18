@@ -5,7 +5,7 @@ from scipy.stats import poisson
 from datetime import datetime
 import os
 
-# ==================== CLÉS (GitHub Secrets) ====================
+# ==================== CLÉS ====================
 API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY")
 THE_ODDS_API_KEY = os.getenv("THE_ODDS_API_KEY")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -14,24 +14,17 @@ CHAT_ID = os.getenv("CHAT_ID")
 def envoyer_telegram(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
-    try:
-        r = requests.post(url, json=payload)
-        if r.status_code == 200:
-            print("✅ Message envoyé sur Telegram")
-        else:
-            print(f"❌ Erreur Telegram {r.status_code}")
-    except Exception as e:
-        print(f"❌ Erreur connexion Telegram : {e}")
+    requests.post(url, json=payload)
 
-print(f"🚀 BOT VALUE BETTING DÉMARRÉ - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+print(f"🚀 BOT VALUE BETTING DÉMARRÉ - {datetime.now().strftime('%H:%M')}")
 
-LEAGUES = [39, 140, 78, 135, 61, 88, 94, 40]  # Grands championnats
+LEAGUES = [39, 140, 78, 135, 61, 88, 94, 40]
 SEASON = 2025
 BOOKMAKER = "unibet"
 
 def api_football(endpoint, params=None):
     if params is None: params = {}
-    r = requests.get(f"https://v3.football.api-sports.io{endpoint}",
+    r = requests.get(f"https://v3.football.api-sports.io{endpoint}", 
                      headers={"x-apisports-key": API_FOOTBALL_KEY}, params=params)
     return r.json().get("response", []) if r.status_code == 200 else []
 
@@ -85,20 +78,20 @@ for league_id in LEAGUES:
                                              ("N", (probaN/100 * coteN) - 1, coteN, probaN),
                                              ("2", (proba2/100 * cote2) - 1, cote2, proba2)]:
                 if value > 0.06:
-                    mise = 20.0  # mise fixe de sécurité
+                    mise = 20.0
                     value_bets.append({"Match": f"{home} vs {away}", "Pari": pari, "Cote": cote,
                                        "Value %": round(value*100, 1), "Mise €": mise})
 
-# ====================== ENVOI TELEGRAM ======================
+# ====================== ENVOI SUR TELEGRAM ======================
 if value_bets:
     df = pd.DataFrame(value_bets).sort_values("Value %", ascending=False)
     message = f"<b>🔥 VALUE BETS DÉTECTÉS ({len(df)})</b>\n\n"
     for _, row in df.iterrows():
-        message += f"📅 {row['Match']}\n   {row['Pari']} @ {row['Cote']} → +{row['Value %']}%\n   Mise : {row['Mise €']} €\n\n"
+        message += f"📅 {row['Match']}\n   {row['Pari']} @ {row['Cote']} → +{row['Value %']}%\n   Mise recommandée : {row['Mise €']} €\n\n"
     message += f"💰 Bankroll : 1000 €"
 else:
     message = f"<b>ℹ️ Bot exécuté à {datetime.now().strftime('%H:%M')}</b>\nAucun value bet > 6% trouvé cette heure.\nLe bot tourne correctement 24/7."
 
 envoyer_telegram(message)
 print("✅ Statut envoyé sur Telegram")
-print("✅ Exécution terminée - GitHub Action OK")
+print("✅ Exécution terminée")
