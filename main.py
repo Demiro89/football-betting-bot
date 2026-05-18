@@ -5,7 +5,6 @@ from scipy.stats import poisson
 from datetime import datetime
 import os
 
-# ==================== CLÉS ====================
 API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY")
 THE_ODDS_API_KEY = os.getenv("THE_ODDS_API_KEY")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -82,16 +81,14 @@ for league_id in LEAGUES:
                     value_bets.append({"Match": f"{home} vs {away}", "Pari": pari, "Cote": cote,
                                        "Value %": round(value*100, 1), "Mise €": mise})
 
-# ====================== ENVOI SUR TELEGRAM ======================
+# ====================== MESSAGE TELEGRAM ======================
 if value_bets:
     df = pd.DataFrame(value_bets).sort_values("Value %", ascending=False)
     message = f"<b>🔥 VALUE BETS DÉTECTÉS ({len(df)})</b>\n\n"
     for _, row in df.iterrows():
-        message += f"📅 {row['Match']}\n   {row['Pari']} @ {row['Cote']} → +{row['Value %']}%\n   Mise recommandée : {row['Mise €']} €\n\n"
-    message += f"💰 Bankroll : 1000 €"
+        message += f"📅 {row['Match']}\n   {row['Pari']} @ {row['Cote']} → +{row['Value %']}%\n   Mise : {row['Mise €']} €\n\n"
 else:
     message = f"<b>ℹ️ Bot exécuté à {datetime.now().strftime('%H:%M')}</b>\nAucun value bet > 6% trouvé cette heure.\nLe bot tourne correctement 24/7."
 
 envoyer_telegram(message)
 print("✅ Statut envoyé sur Telegram")
-print("✅ Exécution terminée")
