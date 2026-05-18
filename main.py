@@ -23,6 +23,18 @@ BOOKMAKER = "unibet"
 xg_cache = {}
 xg_cache_time = {}
 
+def api_football(endpoint, params=None):
+    if params is None: params = {}
+    r = requests.get(f"https://v3.football.api-sports.io{endpoint}", 
+                     headers={"x-apisports-key": API_FOOTBALL_KEY}, params=params)
+    return r.json().get("response", []) if r.status_code == 200 else []
+
+def api_odds():
+    url = "https://api.the-odds-api.com/v4/sports/soccer_epl/soccer_la_liga/soccer_bundesliga/soccer_serie_a/soccer_ligue_one/soccer_eredivisie/soccer_primeira_liga/soccer_championship/odds"
+    params = {"apiKey": THE_ODDS_API_KEY, "regions": "eu", "markets": "h2h", "bookmakers": BOOKMAKER, "oddsFormat": "decimal"}
+    r = requests.get(url, params=params)
+    return r.json() if r.status_code == 200 else []
+
 def api_call_with_retry(url, headers, params=None, max_retries=3, timeout=10):
     for attempt in range(max_retries):
         try:
@@ -55,7 +67,6 @@ def get_team_xg_stats(league_id, team_id, season):
     return 1.3, 1.3
 
 def get_injured_and_suspended_players(team_id):
-    """Récupère les joueurs blessés ET suspendus"""
     url = "https://v3.football.api-sports.io/injuries"
     params = {"team": team_id, "season": SEASON}
     r = requests.get(url, headers={"x-apisports-key": API_FOOTBALL_KEY}, params=params)
@@ -93,7 +104,7 @@ def kelly_criterion_optimized(value, proba, bankroll, max_bet_percent=0.05):
     max_bet = round(bankroll * max_bet_percent)
     return min(bet_amount, max_bet)
 
-print(f"🚀 BOT PRO FINAL xG + BLESSURES + SUSPENSIONS DÉMARRÉ - {datetime.now().strftime('%H:%M')} | Bankroll: {BANKROLL}€")
+print(f"🚀 BOT PRO FINAL DÉMARRÉ - {datetime.now().strftime('%H:%M')} | Bankroll: {BANKROLL}€ | Seuil: {MIN_VALUE_PERCENT}%")
 
 value_bets = []
 odds_data = api_odds()
@@ -110,14 +121,12 @@ for league_id in LEAGUES:
         home_xg, home_xga = get_team_xg_stats(league_id, home_id, SEASON)
         away_xg, away_xga = get_team_xg_stats(league_id, away_id, SEASON)
 
-        # Blessures ET suspensions
         home_injured, home_suspended = get_injured_and_suspended_players(home_id)
         away_injured, away_suspended = get_injured_and_suspended_players(away_id)
 
         lambda_home = (home_xg * 0.7 + home_xga * 0.3) * 1.05
         lambda_away = (away_xg * 0.7 + away_xga * 0.3) * 0.95
 
-        # Ajustement si joueur clé blessé ou suspendu
         all_home_out = home_injured + home_suspended
         all_away_out = away_injured + away_suspended
         
@@ -157,26 +166,21 @@ for league_id in LEAGUES:
                         "Cote": cote,
                         "Value %": round(value*100, 1),
                         "Mise €": mise,
-                        "Proba %": proba,
-                        "Blessés/Suspendus": f"🏠 {', '.join(all_home_out) if all_home_out else 'Aucun'} | 🚌 {', '.join(all_away_out) if all_away_out else 'Aucun'}"
+                        "Proba %": proba
                     })
 
-# ==================== MESSAGE TELEGRAM ====================
 if value_bets:
     df = pd.DataFrame(value_bets).sort_values("Value %", ascending=False)
-    message = f"<b>🔥 {len(df)} VALUE BETS xG + BLESSURES + SUSPENSIONS</b>\n\n"
+    message = f"<b>🔥 {len(df)} VALUE BETS DÉTECTÉS</b>\n\n"
     for _, row in df.iterrows():
         message += f"📅 <b>{row['Match']}</b>\n"
         message += f"   🎯 <b>{row['Pari']}</b> @ {row['Cote']} → <b>+{row['Value %']}%</b>\n"
-        message += f"   💰 Mise : <b>{row['Mise €']} €</b> | Proba: {row['Proba %']}%\n"
-        if row['Blessés/Suspendus'] != "🏠 Aucun | 🚌 Aucun":
-            message += f"   ⚠️ {row['Blessés/Suspendus']}\n"
-        message += "\n"
+        message += f"   💰 Mise : <b>{row['Mise €']} €</b> | Proba: {row['Proba %']}%\n\n"
     message += f"💼 Bankroll : <b>{BANKROLL} €</b>"
 else:
-    message = f"<b>ℹ️ Bot xG + Blessures + Suspensions exécuté à {datetime.now().strftime('%H:%M')}</b>\n"
+    message = f"<b>ℹ️ Bot exécuté à {datetime.now().strftime('%H:%M')}</b>\n"
     message += f"Aucun value bet > {MIN_VALUE_PERCENT}% trouvé cette heure.\n"
-    message += "Le bot tourne correctement 24/7 avec données avancées."
+    message += "Le bot tourne correctement 24/7."
 
 envoyer_telegram(message)
-print("✅ Message envoyé sur Telegram (xG + Blessures + Suspensions)")
+print("✅ Message envoyé sur Telegram")
