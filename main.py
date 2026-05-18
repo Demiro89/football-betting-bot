@@ -81,7 +81,6 @@ for league_id in LEAGUES:
                     value_bets.append({"Match": f"{home} vs {away}", "Pari": pari, "Cote": cote,
                                        "Value %": round(value*100, 1), "Mise €": mise})
 
-# ====================== ENVOI TELEGRAM ======================
 if value_bets:
     df = pd.DataFrame(value_bets).sort_values("Value %", ascending=False)
     message = f"<b>🔥 VALUE BETS DÉTECTÉS ({len(df)})</b>\n\n"
