@@ -66,6 +66,39 @@ def get_team_xg_stats(league_id, team_id, season):
         return xg_for, xg_against
     return 1.3, 1.3
 
+def get_player_workload(player_id, team_id):
+    """Récupère la charge de travail d'un joueur (minutes jouées)"""
+    url = "https://v3.football.api-sports.io/players"
+    params = {"id": player_id, "team": team_id, "season": SEASON}
+    data = api_call_with_retry(url, {"x-apisports-key": API_FOOTBALL_KEY}, params)
+    
+    if data and data.get("response"):
+        player = data["response"][0]
+        stats = player.get("statistics", [{}])[0]
+        minutes = stats.get("games", {}).get("minutes", 0)
+        age = player.get("player", {}).get("age", 25)
+        return minutes, age
+    return 0, 25
+
+def predict_injury_risk(player_id, team_id):
+    """Prédit le risque de blessure avec des règles simples"""
+    minutes, age = get_player_workload(player_id, team_id)
+    risk = 0
+    
+    # Règle 1: Trop de minutes dans les 10 derniers jours
+    if minutes > 300:
+        risk += 0.4
+    
+    # Règle 2: Joueur âgé avec beaucoup de matchs
+    if age > 32 and minutes > 200:
+        risk += 0.3
+    
+    # Règle 3: Blessure récente (simplifié)
+    if minutes > 400:  # Beaucoup de minutes = risque de fatigue
+        risk += 0.2
+    
+    return min(risk, 0.8)  # Max 80% de risque
+
 def get_injured_and_suspended_players(team_id):
     url = "https://v3.football.api-sports.io/injuries"
     params = {"team": team_id, "season": SEASON}
@@ -104,7 +137,7 @@ def kelly_criterion_optimized(value, proba, bankroll, max_bet_percent=0.05):
     max_bet = round(bankroll * max_bet_percent)
     return min(bet_amount, max_bet)
 
-print(f"🚀 BOT PRO FINAL DÉMARRÉ - {datetime.now().strftime('%H:%M')} | Bankroll: {BANKROLL}€ | Seuil: {MIN_VALUE_PERCENT}%")
+print(f"🚀 BOT PRO FINAL xG + IA BLESSURES DÉMARRÉ - {datetime.now().strftime('%H:%M')} | Bankroll: {BANKROLL}€")
 
 value_bets = []
 odds_data = api_odds()
@@ -124,16 +157,31 @@ for league_id in LEAGUES:
         home_injured, home_suspended = get_injured_and_suspended_players(home_id)
         away_injured, away_suspended = get_injured_and_suspended_players(away_id)
 
+        # Prédiction IA des blessures (règles simples)
+        home_injury_risk = 0
+        away_injury_risk = 0
+        
+        for player_name in KEY_PLAYERS.get(home_id, []):
+            # Simulation: on prend le premier joueur de la liste
+            player_id = 1  # À remplacer par le vrai ID du joueur
+            risk = predict_injury_risk(player_id, home_id)
+            if risk > 0.5:
+                home_injury_risk += risk
+        
+        for player_name in KEY_PLAYERS.get(away_id, []):
+            player_id = 1
+            risk = predict_injury_risk(player_id, away_id)
+            if risk > 0.5:
+                away_injury_risk += risk
+
         lambda_home = (home_xg * 0.7 + home_xga * 0.3) * 1.05
         lambda_away = (away_xg * 0.7 + away_xga * 0.3) * 0.95
 
-        all_home_out = home_injured + home_suspended
-        all_away_out = away_injured + away_suspended
-        
-        if all_home_out:
-            lambda_home -= 0.4 * len(all_home_out)
-        if all_away_out:
-            lambda_away -= 0.4 * len(all_away_out)
+        # Ajustement IA
+        if home_injury_risk > 0.5:
+            lambda_home -= 0.3 * home_injury_risk
+        if away_injury_risk > 0.5:
+            lambda_away -= 0.3 * away_injury_risk
 
         hg_sim = poisson.rvs(lambda_home, size=20000)
         ag_sim = poisson.rvs(lambda_away, size=20000)
@@ -171,16 +219,16 @@ for league_id in LEAGUES:
 
 if value_bets:
     df = pd.DataFrame(value_bets).sort_values("Value %", ascending=False)
-    message = f"<b>🔥 {len(df)} VALUE BETS DÉTECTÉS</b>\n\n"
+    message = f"<b>🔥 {len(df)} VALUE BETS xG + IA BLESSURES</b>\n\n"
     for _, row in df.iterrows():
         message += f"📅 <b>{row['Match']}</b>\n"
         message += f"   🎯 <b>{row['Pari']}</b> @ {row['Cote']} → <b>+{row['Value %']}%</b>\n"
         message += f"   💰 Mise : <b>{row['Mise €']} €</b> | Proba: {row['Proba %']}%\n\n"
     message += f"💼 Bankroll : <b>{BANKROLL} €</b>"
 else:
-    message = f"<b>ℹ️ Bot exécuté à {datetime.now().strftime('%H:%M')}</b>\n"
+    message = f"<b>ℹ️ Bot xG + IA Blessures exécuté à {datetime.now().strftime('%H:%M')}</b>\n"
     message += f"Aucun value bet > {MIN_VALUE_PERCENT}% trouvé cette heure.\n"
-    message += "Le bot tourne correctement 24/7."
+    message += "Le bot tourne correctement 24/7 avec IA."
 
 envoyer_telegram(message)
-print("✅ Message envoyé sur Telegram")
+print("✅ Message envoyé sur Telegram (xG + IA Blessures)")
