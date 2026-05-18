@@ -2,7 +2,7 @@ import requests
 import pandas as pd
 import numpy as np
 from scipy.stats import poisson
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 import time
 
@@ -19,33 +19,25 @@ LEAGUES = [39, 140, 78, 135, 61, 88, 94, 40, 144, 95, 136, 79]
 SEASON = 2025
 BOOKMAKER = "unibet"
 
-# Cache pour les stats xG (évite de recharger à chaque fois)
+# Cache pour les stats xG
 xg_cache = {}
 xg_cache_time = {}
 
 def api_call_with_retry(url, headers, params=None, max_retries=3, timeout=10):
-    """Appel API avec retry et timeout"""
     for attempt in range(max_retries):
         try:
             r = requests.get(url, headers=headers, params=params, timeout=timeout)
             if r.status_code == 200:
                 return r.json()
-            elif r.status_code == 429:  # Rate limit
+            elif r.status_code == 429:
                 time.sleep(2 ** attempt)
                 continue
-        except requests.exceptions.Timeout:
-            print(f"Timeout sur {url}, tentative {attempt + 1}/{max_retries}")
-            time.sleep(1)
-        except Exception as e:
-            print(f"Erreur API: {e}")
+        except:
             time.sleep(1)
     return None
 
 def get_team_xg_stats(league_id, team_id, season):
-    """Récupère les stats xG avec cache"""
     cache_key = f"{league_id}_{team_id}_{season}"
-    
-    # Si en cache et moins de 6 heures
     if cache_key in xg_cache and (datetime.now() - xg_cache_time.get(cache_key, datetime.min)).seconds < 21600:
         return xg_cache[cache_key]
     
@@ -60,23 +52,27 @@ def get_team_xg_stats(league_id, team_id, season):
         xg_cache[cache_key] = (xg_for, xg_against)
         xg_cache_time[cache_key] = datetime.now()
         return xg_for, xg_against
-    
     return 1.3, 1.3
 
-# ==================== FONCTIONS ====================
 def envoyer_telegram(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
     requests.post(url, json=payload, timeout=10)
 
-def kelly_criterion(value, proba):
+def kelly_criterion_optimized(value, proba, bankroll, max_bet_percent=0.05):
+    if value <= 0:
+        return 0
     b = value / 100
     p = proba / 100
     q = 1 - p
-    kelly = (b * p - q) / b
-    return max(0, min(kelly, 0.05))
+    kelly_full = (b * p - q) / b
+    kelly_half = kelly_full * 0.5
+    bet_percent = min(kelly_half, max_bet_percent)
+    bet_amount = max(5, round(bankroll * bet_percent))
+    max_bet = round(bankroll * max_bet_percent)
+    return min(bet_amount, max_bet)
 
-print(f"🚀 BOT PRO xG + BLESSURES + LATENCES DÉMARRÉ - {datetime.now().strftime('%H:%M')} | Bankroll: {BANKROLL}€")
+print(f"🚀 BOT PRO FINAL DÉMARRÉ - {datetime.now().strftime('%H:%M')} | Bankroll: {BANKROLL}€ | Seuil: {MIN_VALUE_PERCENT}%")
 
 value_bets = []
 odds_data = api_odds()
@@ -90,11 +86,9 @@ for league_id in LEAGUES:
         home_id = f["teams"]["home"]["id"]
         away_id = f["teams"]["away"]["id"]
 
-        # Récupération des stats xG (avec cache)
         home_xg, home_xga = get_team_xg_stats(league_id, home_id, SEASON)
         away_xg, away_xga = get_team_xg_stats(league_id, away_id, SEASON)
 
-        # Ajustement si joueur clé blessé
         lambda_home = (home_xg * 0.7 + home_xga * 0.3) * 1.05
         lambda_away = (away_xg * 0.7 + away_xga * 0.3) * 0.95
 
@@ -122,7 +116,7 @@ for league_id in LEAGUES:
                                              ("N", (probaN/100 * coteN) - 1, coteN, probaN),
                                              ("2", (proba2/100 * cote2) - 1, cote2, proba2)]:
                 if value > (MIN_VALUE_PERCENT / 100):
-                    mise = round(BANKROLL * kelly_criterion(value, proba), 2)
+                    mise = kelly_criterion_optimized(value, proba, BANKROLL)
                     value_bets.append({
                         "Match": f"{home} vs {away}",
                         "Pari": pari,
@@ -132,11 +126,18 @@ for league_id in LEAGUES:
                         "Proba %": proba
                     })
 
-# ==================== MESSAGE TELEGRAM ====================
 if value_bets:
     df = pd.DataFrame(value_bets).sort_values("Value %", ascending=False)
-    message = f"<b>🔥 {len(df)} VALUE BETS xG + BLESSURES</b>\n\n"
+    message = f"<b>🔥 {len(df)} VALUE BETS DÉTECTÉS</b>\n\n"
     for _, row in df.iterrows():
         message += f"📅 <b>{row['Match']}</b>\n"
         message += f"   🎯 <b>{row['Pari']}</b> @ {row['Cote']} → <b>+{row['Value %']}%</b>\n"
-       
+        message += f"   💰 Mise : <b>{row['Mise €']} €</b> | Proba: {row['Proba %']}%\n\n"
+    message += f"💼 Bankroll : <b>{BANKROLL} €</b>"
+else:
+    message = f"<b>ℹ️ Bot exécuté à {datetime.now().strftime('%H:%M')}</b>\n"
+    message += f"Aucun value bet > {MIN_VALUE_PERCENT}% trouvé cette heure.\n"
+    message += "Le bot tourne correctement 24/7."
+
+envoyer_telegram(message)
+print("✅ Message envoyé sur Telegram")
