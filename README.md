@@ -16,7 +16,9 @@ Variables d'environnement requises (voir `.env.example`) :
 
 Variables optionnelles : `BANKROLL` (defaut 1000), `MIN_VALUE_PERCENT` (defaut 6),
 `KELLY_FRACTION` (defaut 0.25), `MAX_BET_FRACTION` (defaut 0.05),
-`MIN_BET` (defaut 5), `DAYS_AHEAD` (defaut 3), `BOOKMAKER` (defaut unibet).
+`MIN_BET` (defaut 5), `DAYS_AHEAD` (defaut 3), `BOOKMAKER` (defaut unibet),
+`ENABLE_TOTALS` (defaut false ; active le marche Over/Under mais double le
+cout The Odds API par requete).
 
 ## Lancer en local
 
@@ -25,6 +27,19 @@ pip install -r requirements.txt
 cp .env.example .env   # puis renseignez vos cles
 python main.py
 ```
+
+## Backtest
+
+Avant de parier en reel, evaluez la qualite du modele :
+
+```bash
+python backtest.py [saison] [league_id ...]
+```
+
+Le backtest rejoue les saisons passees en walk-forward (aucune fuite de
+donnees) et compare le modele a une baseline de frequences de base
+(score de Brier, log-loss, calibration). Un modele qui ne bat pas la
+baseline ne peut pas etre rentable.
 
 ## Automatisation
 

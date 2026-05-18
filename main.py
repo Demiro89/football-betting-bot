@@ -70,6 +70,9 @@ MAX_BET_FRACTION = _env_float("MAX_BET_FRACTION", 0.05)    # plafond : 5 % de ba
 MIN_BET = _env_float("MIN_BET", 5.0)                       # mise minimale viable
 DAYS_AHEAD = _env_int("DAYS_AHEAD", 3)                     # fenêtre de matchs analysés
 BOOKMAKER = os.getenv("BOOKMAKER", "unibet").lower()
+# Active le marché Over/Under (totals). Double le coût The Odds API par requête
+# (coût = nb marchés x nb régions) — laisser désactivé pour rester sous le quota gratuit.
+ENABLE_TOTALS = os.getenv("ENABLE_TOTALS", "false").lower() in ("1", "true", "yes", "oui")
 
 # API-Football league id -> The Odds API sport key.
 # À vérifier sur vos dashboards : un id/clé erroné renvoie simplement 0 cote
@@ -107,6 +110,12 @@ MAX_GOALS = 10              # plafond de buts pour la grille de probabilités
 DIXON_COLES_RHO = -0.05     # correction des scores faibles (corrélation 1-1, 0-0...)
 HOME_LAMBDA_FLOOR = 0.2     # lambda minimal pour éviter les cas dégénérés
 INJURY_PENALTY = 0.12       # réduction multiplicative de lambda par joueur clé absent
+TOTALS_LINE = 2.5           # ligne Over/Under analysée
+
+# Marchés : libellés d'affichage des sélections, et regroupement pour le devig.
+SELECTION_LABELS = {"1": "1", "N": "Nul", "2": "2",
+                    "O2.5": "+2,5 buts", "U2.5": "-2,5 buts"}
+MARKET_GROUPS = (("1", "N", "2"), ("O2.5", "U2.5"))
 
 # API
 API_FOOTBALL_BASE = "https://v3.football.api-sports.io"
@@ -297,43 +306,65 @@ def _dixon_coles_tau(i: int, j: int, lh: float, la: float, rho: float) -> float:
     return 1.0
 
 
-def match_probabilities(lambda_home: float, lambda_away: float) -> tuple[float, float, float]:
-    """Probabilités exactes (1, N, 2) sur la grille des scores. Renvoie des valeurs normalisées."""
+def score_matrix(lambda_home: float, lambda_away: float) -> list[list[float]]:
+    """Grille normalisée P[i][j] des probabilités de score exact."""
     lambda_home = max(lambda_home, HOME_LAMBDA_FLOOR)
     lambda_away = max(lambda_away, HOME_LAMBDA_FLOOR)
 
     home_pmf = [poisson.pmf(i, lambda_home) for i in range(MAX_GOALS + 1)]
     away_pmf = [poisson.pmf(j, lambda_away) for j in range(MAX_GOALS + 1)]
 
-    p_home = p_draw = p_away = total = 0.0
+    grid: list[list[float]] = []
+    total = 0.0
     for i in range(MAX_GOALS + 1):
+        row = []
         for j in range(MAX_GOALS + 1):
             p = (home_pmf[i] * away_pmf[j]
                  * _dixon_coles_tau(i, j, lambda_home, lambda_away, DIXON_COLES_RHO))
+            row.append(p)
             total += p
+        grid.append(row)
+
+    if total <= 0:
+        return grid
+    return [[p / total for p in row] for row in grid]
+
+
+def market_probabilities(lambda_home: float, lambda_away: float) -> dict[str, float]:
+    """Probabilités de tous les marchés modélisés, à partir de la grille de scores."""
+    grid = score_matrix(lambda_home, lambda_away)
+    p_home = p_draw = p_away = p_over = p_btts = 0.0
+    for i in range(MAX_GOALS + 1):
+        for j in range(MAX_GOALS + 1):
+            p = grid[i][j]
             if i > j:
                 p_home += p
             elif i == j:
                 p_draw += p
             else:
                 p_away += p
-
-    if total <= 0:
-        return 0.0, 0.0, 0.0
-    return p_home / total, p_draw / total, p_away / total
+            if i + j > TOTALS_LINE:
+                p_over += p
+            if i >= 1 and j >= 1:
+                p_btts += p
+    return {
+        "1": p_home, "N": p_draw, "2": p_away,
+        "O2.5": p_over, "U2.5": 1 - p_over,
+        "BTTS": p_btts, "NOBTTS": 1 - p_btts,
+    }
 
 
 # =============================================================================
 # COTES
 # =============================================================================
 def get_odds(sport_key: str) -> list:
-    """Cotes h2h d'un championnat via The Odds API."""
+    """Cotes d'un championnat via The Odds API (h2h, plus totals si activé)."""
     data = _request(
         f"{ODDS_BASE}/{sport_key}/odds",
         params={
             "apiKey": THE_ODDS_API_KEY,
             "regions": "eu",
-            "markets": "h2h",
+            "markets": "h2h,totals" if ENABLE_TOTALS else "h2h",
             "oddsFormat": "decimal",
         },
     )
@@ -359,8 +390,8 @@ def names_match(a: str, b: str) -> bool:
     return SequenceMatcher(None, a, b).ratio() >= 0.6
 
 
-def find_odds(events: list, home_name: str, away_name: str) -> tuple[float, float, float] | None:
-    """Cotes (domicile, nul, extérieur) pour un match donné, ou None."""
+def find_odds(events: list, home_name: str, away_name: str) -> dict[str, float]:
+    """Cotes disponibles pour un match : {sélection: cote}. Dict vide si non trouvé."""
     for event in events:
         ev_home = event.get("home_team", "")
         ev_away = event.get("away_team", "")
@@ -369,23 +400,42 @@ def find_odds(events: list, home_name: str, away_name: str) -> tuple[float, floa
         for bm in event.get("bookmakers", []):
             if BOOKMAKER not in bm.get("key", "").lower():
                 continue
+            odds: dict[str, float] = {}
             for market in bm.get("markets", []):
-                if market.get("key") != "h2h":
-                    continue
-                prices = {o.get("name"): o.get("price") for o in market.get("outcomes", [])}
-                odd_home = prices.get(ev_home)
-                odd_away = prices.get(ev_away)
-                odd_draw = prices.get("Draw")
-                if odd_home and odd_draw and odd_away:
-                    return float(odd_home), float(odd_draw), float(odd_away)
-    return None
+                key = market.get("key")
+                outcomes = market.get("outcomes", [])
+                if key == "h2h":
+                    prices = {o.get("name"): o.get("price") for o in outcomes}
+                    if prices.get(ev_home):
+                        odds["1"] = float(prices[ev_home])
+                    if prices.get("Draw"):
+                        odds["N"] = float(prices["Draw"])
+                    if prices.get(ev_away):
+                        odds["2"] = float(prices[ev_away])
+                elif key == "totals":
+                    for o in outcomes:
+                        if o.get("point") != TOTALS_LINE or not o.get("price"):
+                            continue
+                        if o.get("name") == "Over":
+                            odds["O2.5"] = float(o["price"])
+                        elif o.get("name") == "Under":
+                            odds["U2.5"] = float(o["price"])
+            if odds:
+                return odds
+    return {}
 
 
-def devig(odd_home: float, odd_draw: float, odd_away: float) -> tuple[float, float, float]:
-    """Probabilités implicites du marché, marge bookmaker retirée."""
-    inv = [1 / odd_home, 1 / odd_draw, 1 / odd_away]
-    total = sum(inv)
-    return tuple(x / total for x in inv)  # type: ignore[return-value]
+def devigged_market(odds: dict[str, float]) -> dict[str, float]:
+    """Probabilités implicites du marché (marge bookmaker retirée), par groupe de marché."""
+    fair: dict[str, float] = {}
+    for group in MARKET_GROUPS:
+        present = {k: odds[k] for k in group if odds.get(k)}
+        if len(present) < 2:
+            continue
+        inv = {k: 1 / v for k, v in present.items()}
+        total = sum(inv.values())
+        fair.update({k: v / total for k, v in inv.items()})
+    return fair
 
 
 # =============================================================================
@@ -481,7 +531,6 @@ def analyse_fixture(fixture: dict, league_id: int, season: int, odds_events: lis
     odds = find_odds(odds_events, home_name, away_name)
     if not odds:
         return []
-    odd_home, odd_draw, odd_away = odds
 
     home_str = get_team_strength(league_id, home_id, season)
     away_str = get_team_strength(league_id, away_id, season)
@@ -491,15 +540,14 @@ def analyse_fixture(fixture: dict, league_id: int, season: int, odds_events: lis
     lambda_home *= (1 - INJURY_PENALTY) ** key_players_out(home_id, season)
     lambda_away *= (1 - INJURY_PENALTY) ** key_players_out(away_id, season)
 
-    p_home, p_draw, p_away = match_probabilities(lambda_home, lambda_away)
-    market = devig(odd_home, odd_draw, odd_away)
+    model = market_probabilities(lambda_home, lambda_away)
+    market = devigged_market(odds)
 
     bets: list[dict] = []
-    for pari, prob, odd, mkt in (
-        ("1", p_home, odd_home, market[0]),
-        ("N", p_draw, odd_draw, market[1]),
-        ("2", p_away, odd_away, market[2]),
-    ):
+    for selection, odd in odds.items():
+        prob = model.get(selection)
+        if prob is None or not odd:
+            continue
         value = prob * odd - 1
         if value < MIN_VALUE:
             continue
@@ -508,10 +556,10 @@ def analyse_fixture(fixture: dict, league_id: int, season: int, odds_events: lis
             continue
         bets.append({
             "match": f"{home_name} vs {away_name}",
-            "pari": pari,
+            "pari": SELECTION_LABELS.get(selection, selection),
             "cote": round(odd, 2),
             "proba": round(prob * 100, 1),
-            "market_prob": round(mkt * 100, 1),
+            "market_prob": round(market.get(selection, 0.0) * 100, 1),
             "value_pct": round(value * 100, 1),
             "stake": stake,
         })
