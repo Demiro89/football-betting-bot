@@ -5,7 +5,6 @@ from scipy.stats import poisson
 from datetime import datetime
 import os
 import time
-import csv
 
 # ==================== CONFIG ====================
 API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY")
@@ -55,21 +54,26 @@ def get_team_xg_stats(league_id, team_id, season):
         return xg_for, xg_against
     return 1.3, 1.3
 
-def get_weather(city):
-    """Récupère la météo via Open-Meteo (gratuit)"""
-    try:
-        url = f"https://api.open-meteo.com/v1/forecast?latitude=48.8566&longitude=2.3522&current_weather=true"
-        # Note: Remplace les coordonnées par celles de la ville du match
-        r = requests.get(url, timeout=10)
-        if r.status_code == 200:
-            weather = r.json().get("current_weather", {})
-            temp = weather.get("temperature", 15)
-            wind = weather.get("windspeed", 10)
-            rain = weather.get("rain", 0)
-            return temp, wind, rain
-    except:
-        pass
-    return 15, 10, 0
+def get_injured_and_suspended_players(team_id):
+    """Récupère les joueurs blessés ET suspendus"""
+    url = "https://v3.football.api-sports.io/injuries"
+    params = {"team": team_id, "season": SEASON}
+    r = requests.get(url, headers={"x-apisports-key": API_FOOTBALL_KEY}, params=params)
+    injured = []
+    suspended = []
+    
+    if r.status_code == 200 and r.json().get("response"):
+        for injury in r.json()["response"]:
+            player_name = injury.get("player", {}).get("name", "")
+            reason = injury.get("player", {}).get("reason", "").lower()
+            
+            if player_name in KEY_PLAYERS.get(team_id, []):
+                if "suspension" in reason or "suspend" in reason:
+                    suspended.append(player_name)
+                else:
+                    injured.append(player_name)
+    
+    return injured, suspended
 
 def envoyer_telegram(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -89,18 +93,7 @@ def kelly_criterion_optimized(value, proba, bankroll, max_bet_percent=0.05):
     max_bet = round(bankroll * max_bet_percent)
     return min(bet_amount, max_bet)
 
-def save_bet_to_history(bet_data):
-    """Sauvegarde le pari dans l'historique CSV"""
-    file_path = "roi_history.csv"
-    file_exists = os.path.isfile(file_path)
-    
-    with open(file_path, 'a', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=['date', 'match', 'bet', 'odds', 'value_percent', 'stake', 'result', 'profit'])
-        if not file_exists:
-            writer.writeheader()
-        writer.writerow(bet_data)
-
-print(f"🚀 BOT PRO FINAL xG + MÉTÉO + ROI DÉMARRÉ - {datetime.now().strftime('%H:%M')} | Bankroll: {BANKROLL}€")
+print(f"🚀 BOT PRO FINAL xG + BLESSURES + SUSPENSIONS DÉMARRÉ - {datetime.now().strftime('%H:%M')} | Bankroll: {BANKROLL}€")
 
 value_bets = []
 odds_data = api_odds()
@@ -117,16 +110,21 @@ for league_id in LEAGUES:
         home_xg, home_xga = get_team_xg_stats(league_id, home_id, SEASON)
         away_xg, away_xga = get_team_xg_stats(league_id, away_id, SEASON)
 
-        # Météo (simplifié - utilise Paris comme référence)
-        temp, wind, rain = get_weather("Paris")
-        weather_adjustment = 0
-        if rain > 5:
-            weather_adjustment = -0.2
-        elif wind > 30:
-            weather_adjustment = 0.1
+        # Blessures ET suspensions
+        home_injured, home_suspended = get_injured_and_suspended_players(home_id)
+        away_injured, away_suspended = get_injured_and_suspended_players(away_id)
 
-        lambda_home = (home_xg * 0.7 + home_xga * 0.3) * 1.05 + weather_adjustment
-        lambda_away = (away_xg * 0.7 + away_xga * 0.3) * 0.95 - weather_adjustment
+        lambda_home = (home_xg * 0.7 + home_xga * 0.3) * 1.05
+        lambda_away = (away_xg * 0.7 + away_xga * 0.3) * 0.95
+
+        # Ajustement si joueur clé blessé ou suspendu
+        all_home_out = home_injured + home_suspended
+        all_away_out = away_injured + away_suspended
+        
+        if all_home_out:
+            lambda_home -= 0.4 * len(all_home_out)
+        if all_away_out:
+            lambda_away -= 0.4 * len(all_away_out)
 
         hg_sim = poisson.rvs(lambda_home, size=20000)
         ag_sim = poisson.rvs(lambda_away, size=20000)
@@ -159,22 +157,26 @@ for league_id in LEAGUES:
                         "Cote": cote,
                         "Value %": round(value*100, 1),
                         "Mise €": mise,
-                        "Proba %": proba
+                        "Proba %": proba,
+                        "Blessés/Suspendus": f"🏠 {', '.join(all_home_out) if all_home_out else 'Aucun'} | 🚌 {', '.join(all_away_out) if all_away_out else 'Aucun'}"
                     })
 
 # ==================== MESSAGE TELEGRAM ====================
 if value_bets:
     df = pd.DataFrame(value_bets).sort_values("Value %", ascending=False)
-    message = f"<b>🔥 {len(df)} VALUE BETS xG + MÉTÉO</b>\n\n"
+    message = f"<b>🔥 {len(df)} VALUE BETS xG + BLESSURES + SUSPENSIONS</b>\n\n"
     for _, row in df.iterrows():
         message += f"📅 <b>{row['Match']}</b>\n"
         message += f"   🎯 <b>{row['Pari']}</b> @ {row['Cote']} → <b>+{row['Value %']}%</b>\n"
-        message += f"   💰 Mise : <b>{row['Mise €']} €</b> | Proba: {row['Proba %']}%\n\n"
+        message += f"   💰 Mise : <b>{row['Mise €']} €</b> | Proba: {row['Proba %']}%\n"
+        if row['Blessés/Suspendus'] != "🏠 Aucun | 🚌 Aucun":
+            message += f"   ⚠️ {row['Blessés/Suspendus']}\n"
+        message += "\n"
     message += f"💼 Bankroll : <b>{BANKROLL} €</b>"
 else:
-    message = f"<b>ℹ️ Bot xG + Météo exécuté à {datetime.now().strftime('%H:%M')}</b>\n"
+    message = f"<b>ℹ️ Bot xG + Blessures + Suspensions exécuté à {datetime.now().strftime('%H:%M')}</b>\n"
     message += f"Aucun value bet > {MIN_VALUE_PERCENT}% trouvé cette heure.\n"
     message += "Le bot tourne correctement 24/7 avec données avancées."
 
 envoyer_telegram(message)
-print("✅ Message envoyé sur Telegram (xG + Météo + ROI)")
+print("✅ Message envoyé sur Telegram (xG + Blessures + Suspensions)")
