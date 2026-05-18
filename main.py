@@ -73,8 +73,7 @@ for league_id in LEAGUES:
                                              ("N", (probaN/100 * coteN) - 1, coteN, probaN),
                                              ("2", (proba2/100 * cote2) - 1, cote2, proba2)]:
                 if value > 0.06:
-                    mise = 20.0
-                    value_bets.append({"Match": f"{home} vs {away}", "Pari": pari, "Cote": cote, "Value %": round(value*100, 1), "Mise €": mise})
+                    value_bets.append({"Match": f"{home} vs {away}", "Pari": pari, "Cote": cote, "Value %": round(value*100, 1), "Mise €": 20.0})
 
 if value_bets:
     df = pd.DataFrame(value_bets).sort_values("Value %", ascending=False)
