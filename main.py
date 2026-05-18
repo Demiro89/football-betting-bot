@@ -74,6 +74,10 @@ BOOKMAKER = os.getenv("BOOKMAKER", "unibet").lower()
 # (coût = nb marchés x nb régions) — laisser désactivé pour rester sous le quota gratuit.
 ENABLE_TOTALS = os.getenv("ENABLE_TOTALS", "false").lower() in ("1", "true", "yes", "oui")
 
+# Fonctionnement 24/7 : anti-spam et messages de statut.
+TELEGRAM_QUIET = os.getenv("TELEGRAM_QUIET", "true").lower() in ("1", "true", "yes", "oui")
+DEDUP_HOURS = _env_float("DEDUP_HOURS", 24.0)
+
 # API-Football league id -> The Odds API sport key.
 # À vérifier sur vos dashboards : un id/clé erroné renvoie simplement 0 cote
 # pour ce championnat sans bloquer le reste du bot.
@@ -125,7 +129,9 @@ ODDS_BASE = "https://api.the-odds-api.com/v4/sports"
 CACHE_DIR = Path(".cache")
 CACHE_FILE = CACHE_DIR / "stats.json"
 CACHE_TTL = timedelta(hours=12)
-BETS_LOG = Path("bets_log.csv")
+DEDUP_TTL = timedelta(hours=DEDUP_HOURS)   # un même pari n'est notifié qu'une fois par fenêtre
+REVALUE_MARGIN = 2.0                       # points de value en plus pour re-notifier un pari
+BETS_LOG = CACHE_DIR / "bets_log.csv"      # dans .cache pour persister entre runs (actions/cache)
 
 
 # =============================================================================
@@ -166,6 +172,22 @@ def _cache_get(key: str):
 
 def _cache_set(key: str, value) -> None:
     _CACHE[key] = {"ts": datetime.now(timezone.utc).isoformat(), "value": value}
+
+
+def _prune_cache() -> None:
+    """Supprime les entrées périmées pour que le cache ne grossisse pas indéfiniment."""
+    horizon = datetime.now(timezone.utc) - max(CACHE_TTL, DEDUP_TTL)
+    stale = []
+    for key, entry in _CACHE.items():
+        if not isinstance(entry, dict) or "ts" not in entry:
+            continue
+        try:
+            if datetime.fromisoformat(entry["ts"]) < horizon:
+                stale.append(key)
+        except ValueError:
+            stale.append(key)
+    for key in stale:
+        del _CACHE[key]
 
 
 # =============================================================================
@@ -520,6 +542,44 @@ def log_bets(bets: list[dict]) -> None:
 
 
 # =============================================================================
+# ANTI-SPAM (fonctionnement 24/7)
+# =============================================================================
+def _bet_signature(bet: dict) -> str:
+    return f"{bet['match']}|{bet['pari']}"
+
+
+def is_new_bet(bet: dict) -> bool:
+    """True si le pari n'a pas été notifié dans la fenêtre DEDUP_TTL, ou si sa
+    value a nettement progressé depuis la dernière notification."""
+    entry = _CACHE.get(f"notified:{_bet_signature(bet)}")
+    if not isinstance(entry, dict):
+        return True
+    try:
+        ts = datetime.fromisoformat(entry["ts"])
+    except (KeyError, ValueError):
+        return True
+    if datetime.now(timezone.utc) - ts >= DEDUP_TTL:
+        return True
+    return bet["value_pct"] > entry.get("value_pct", 0) + REVALUE_MARGIN
+
+
+def mark_notified(bet: dict) -> None:
+    _CACHE[f"notified:{_bet_signature(bet)}"] = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "value_pct": bet["value_pct"],
+    }
+
+
+def _maybe_heartbeat() -> bool:
+    """Autorise un unique message « bot actif » par jour."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    if _CACHE.get("heartbeat_date") == today:
+        return False
+    _CACHE["heartbeat_date"] = today
+    return True
+
+
+# =============================================================================
 # ANALYSE D'UN MATCH
 # =============================================================================
 def analyse_fixture(fixture: dict, league_id: int, season: int, odds_events: list) -> list[dict]:
@@ -598,8 +658,10 @@ def main() -> None:
     date_to = (now + timedelta(days=DAYS_AHEAD)).date().isoformat()
 
     all_bets: list[dict] = []
+    total_odds_events = 0
     for league_id, sport_key in LEAGUES.items():
         odds_events = get_odds(sport_key)
+        total_odds_events += len(odds_events)
         if not odds_events:
             log.info("Ligue %d (%s) : aucune cote disponible", league_id, sport_key)
             continue
@@ -620,14 +682,37 @@ def main() -> None:
             except Exception as exc:  # un match cassé ne doit pas tuer le run
                 log.warning("Analyse d'un match échouée : %s", exc)
 
-    _save_cache(_CACHE)
-    all_bets.sort(key=lambda b: b["value_pct"], reverse=True)
-    if all_bets:
-        log_bets(all_bets)
+    if total_odds_events == 0:
+        log.error("Aucune cote récupérée sur l'ensemble des championnats")
+        send_telegram("<b>⚠️ Bot : aucune cote récupérée</b>\n"
+                      "Vérifiez THE_ODDS_API_KEY et le quota The Odds API.")
+        _prune_cache()
+        _save_cache(_CACHE)
+        return
 
-    send_telegram(build_message(all_bets, season))
-    log.info("Terminé : %d value bet(s) détecté(s)", len(all_bets))
+    all_bets.sort(key=lambda b: b["value_pct"], reverse=True)
+    new_bets = [b for b in all_bets if is_new_bet(b)]
+    for bet in new_bets:
+        mark_notified(bet)
+
+    if new_bets:
+        log_bets(new_bets)
+        send_telegram(build_message(new_bets, season))
+    elif not TELEGRAM_QUIET:
+        send_telegram(build_message([], season))
+    elif _maybe_heartbeat():
+        send_telegram(f"<b>✅ Bot actif</b>\nAucun nouveau value bet — "
+                      f"{len(LEAGUES)} championnats surveillés, saison {season}.")
+
+    _prune_cache()
+    _save_cache(_CACHE)
+    log.info("Terminé : %d value bet(s), dont %d nouveau(x)", len(all_bets), len(new_bets))
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        log.exception("Échec inattendu du run")
+        send_telegram(f"<b>⚠️ Bot : erreur d'exécution</b>\n{html.escape(str(exc))}")
+        sys.exit(1)

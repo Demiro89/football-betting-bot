@@ -18,7 +18,9 @@ Variables optionnelles : `BANKROLL` (defaut 1000), `MIN_VALUE_PERCENT` (defaut 6
 `KELLY_FRACTION` (defaut 0.25), `MAX_BET_FRACTION` (defaut 0.05),
 `MIN_BET` (defaut 5), `DAYS_AHEAD` (defaut 3), `BOOKMAKER` (defaut unibet),
 `ENABLE_TOTALS` (defaut false ; active le marche Over/Under mais double le
-cout The Odds API par requete).
+cout The Odds API par requete), `TELEGRAM_QUIET` (defaut true ; aucun message
+quand il n'y a pas de nouveau pari), `DEDUP_HOURS` (defaut 24 ; fenetre pendant
+laquelle un meme pari n'est notifie qu'une fois).
 
 ## Lancer en local
 
@@ -51,10 +53,28 @@ La suite (`test_bot.py`) couvre le modele, les cotes, le Kelly, le cache,
 la couche HTTP et le backtest. Tous les appels reseau sont simules. Les
 tests tournent automatiquement a chaque push (workflow `tests.yml`).
 
-## Automatisation
+## Fonctionnement 24/7
 
-Le workflow `.github/workflows/bot-value.yml` execute le bot via GitHub Actions.
-Renseignez les cles dans **Settings -> Secrets and variables -> Actions**.
+Le workflow `.github/workflows/bot-value.yml` execute le bot en continu via
+GitHub Actions (cron toutes les 4h par defaut). Renseignez les cles dans
+**Settings -> Secrets and variables -> Actions**.
+
+Le bot est concu pour tourner souvent sans spammer :
+
+- **Deduplication** : un meme pari n'est notifie qu'une fois par fenetre
+  `DEDUP_HOURS` (re-notifie seulement si la value progresse nettement).
+- **Mode silencieux** (`TELEGRAM_QUIET`) : aucun message quand il n'y a rien
+  de nouveau, plus un unique heartbeat « bot actif » par jour.
+- **Alertes de panne** : message Telegram si aucune cote n'est recuperee
+  (cle/quota) ou en cas d'erreur d'execution.
+- L'etat (cache, paris notifies, `bets_log.csv`) persiste entre les runs via
+  `actions/cache`.
+
+**Quotas** : The Odds API gratuit = 500 requetes/mois. A 6 runs/jour x ~10
+ligues, le quota gratuit est depasse — repassez le cron a `0 9 * * *`
+(1 run/jour), reduisez la liste `LEAGUES`, ou prenez un palier payant.
+
+GitHub desactive les workflows planifies apres 60 jours d'inactivite du depot.
 
 Ne committez jamais vos cles d'API dans le depot (`.env` est ignore par git).
 

@@ -2,9 +2,12 @@ name: Bot Value Betting
 
 on:
   schedule:
-    # 2x/jour. The Odds API gratuit = 500 requetes/mois ; ~10 ligues/run => ~600/mois.
-    # Pour rester sous le quota gratuit, repassez a une seule execution : '0 9 * * *'.
-    - cron: '0 8,18 * * *'
+    # Fonctionnement 24/7 : le bot tourne toutes les 4h (6 fois/jour).
+    # COUT API : The Odds API gratuit = 500 requetes/mois ; 6 runs x ~10 ligues
+    # => ~1800/mois. Pour rester sur le palier gratuit, repassez a 1 run/jour
+    # ('0 9 * * *') ou reduisez la liste LEAGUES dans main.py. La deduplication
+    # garantit qu'un meme pari n'est notifie qu'une fois quelle que soit la frequence.
+    - cron: '0 */4 * * *'
   workflow_dispatch:
 
 jobs:
@@ -42,5 +45,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: bets-log
-          path: bets_log.csv
+          path: .cache/bets_log.csv
           if-no-files-found: ignore

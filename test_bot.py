@@ -411,5 +411,51 @@ class TestBacktest(unittest.TestCase):
         self.assertEqual(games[1]["gh"], 2)
 
 
+# =============================================================================
+# DÉDUPLICATION & HEARTBEAT (fonctionnement 24/7)
+# =============================================================================
+class TestDedup(unittest.TestCase):
+    def setUp(self):
+        main._CACHE.clear()
+
+    def _bet(self, value=8.0):
+        return {"match": "A vs B", "pari": "1", "value_pct": value}
+
+    def test_pari_inedit_est_nouveau(self):
+        self.assertTrue(main.is_new_bet(self._bet()))
+
+    def test_pari_deja_notifie_ignore(self):
+        bet = self._bet()
+        main.mark_notified(bet)
+        self.assertFalse(main.is_new_bet(bet))
+
+    def test_revalue_significative_re_notifie(self):
+        main.mark_notified(self._bet(8.0))
+        self.assertTrue(main.is_new_bet(self._bet(8.0 + main.REVALUE_MARGIN + 1)))
+
+    def test_revalue_faible_reste_ignore(self):
+        main.mark_notified(self._bet(8.0))
+        self.assertFalse(main.is_new_bet(self._bet(8.5)))
+
+    def test_notification_perimee_est_nouveau(self):
+        old = (datetime.now(timezone.utc) - main.DEDUP_TTL - timedelta(hours=1)).isoformat()
+        main._CACHE["notified:A vs B|1"] = {"ts": old, "value_pct": 8.0}
+        self.assertTrue(main.is_new_bet(self._bet()))
+
+    def test_heartbeat_une_fois_par_jour(self):
+        self.assertTrue(main._maybe_heartbeat())
+        self.assertFalse(main._maybe_heartbeat())
+
+    def test_prune_supprime_entrees_perimees(self):
+        old = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        main._CACHE["notified:vieux|1"] = {"ts": old, "value_pct": 5.0}
+        main._cache_set("frais", 1)
+        main._maybe_heartbeat()
+        main._prune_cache()
+        self.assertNotIn("notified:vieux|1", main._CACHE)
+        self.assertIn("frais", main._CACHE)
+        self.assertIn("heartbeat_date", main._CACHE)  # entrée non datée préservée
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
