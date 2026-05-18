@@ -1,19 +1,40 @@
-# 🚀 Football Betting Bot - Modèle Poisson
+# Football Betting Bot
 
-Bot de prédiction de matchs de Ligue 1 avec modèle Poisson + value betting.
+Bot de value betting football : modele de Poisson / Dixon-Coles confronte aux
+cotes d'un bookmaker (via The Odds API), avec notifications Telegram.
 
-## Comment lancer sur GitHub Codespaces (cloud - sans rien installer)
+## Configuration
 
-1. Clique sur le bouton vert **Code** → **Open with Codespaces** → **Create codespace**
-2. Une fois ouvert, dans le terminal tape :
-   ```bash
-   pip install -r requirements.txt
-   echo "API_FOOTBALL_KEY=0c54986bff16754cf8f6aa9b7214158a" > .env
-   python main.py
-   ```
+Variables d'environnement requises (voir `.env.example`) :
 
-Tout tourne dans le cloud gratuitement !
+| Variable | Description |
+|---|---|
+| `API_FOOTBALL_KEY` | Cle API-Football (api-sports.io) |
+| `THE_ODDS_API_KEY` | Cle The Odds API |
+| `BOT_TOKEN` | Token du bot Telegram |
+| `CHAT_ID` | ID du chat Telegram |
 
-## Étape 1 terminée ✅
+Variables optionnelles : `BANKROLL` (defaut 1000), `MIN_VALUE_PERCENT` (defaut 6),
+`KELLY_FRACTION` (defaut 0.25), `MAX_BET_FRACTION` (defaut 0.05),
+`MIN_BET` (defaut 5), `DAYS_AHEAD` (defaut 3), `BOOKMAKER` (defaut unibet).
 
-Prochaine : cotes FDJ + value betting.
+## Lancer en local
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env   # puis renseignez vos cles
+python main.py
+```
+
+## Automatisation
+
+Le workflow `.github/workflows/bot-value.yml` execute le bot via GitHub Actions.
+Renseignez les cles dans **Settings -> Secrets and variables -> Actions**.
+
+Ne committez jamais vos cles d'API dans le depot (`.env` est ignore par git).
+
+## Avertissement
+
+Les paris sportifs comportent un risque de perte. Le modele n'a pas ete valide
+par backtest : testez en simulation et suivez le ROI (`bets_log.csv`) avant tout
+engagement reel.
