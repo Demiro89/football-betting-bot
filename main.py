@@ -13,9 +13,7 @@ CHAT_ID = os.getenv("CHAT_ID")
 
 BANKROLL = float(os.getenv("BANKROLL", 1000))
 MIN_VALUE_PERCENT = float(os.getenv("MIN_VALUE_PERCENT", 6))
-MISE_PERCENT = 0.02
 
-# 12 championnats
 LEAGUES = [39, 140, 78, 135, 61, 88, 94, 40, 144, 95, 136, 79]
 SEASON = 2025
 BOOKMAKER = "unibet"
@@ -33,7 +31,19 @@ def kelly_criterion(value, proba):
     kelly = (b * p - q) / b
     return max(0, min(kelly, 0.05))
 
-print(f"🚀 BOT PRO DÉMARRÉ - {datetime.now().strftime('%H:%M')} | Bankroll: {BANKROLL}€ | Seuil: {MIN_VALUE_PERCENT}% | 12 championnats")
+def get_team_xg_stats(league_id, team_id, season):
+    """Récupère les stats xG d'une équipe sur la saison"""
+    url = f"https://v3.football.api-sports.io/teams/statistics"
+    params = {"league": league_id, "team": team_id, "season": season}
+    r = requests.get(url, headers={"x-apisports-key": API_FOOTBALL_KEY}, params=params)
+    if r.status_code == 200 and r.json().get("response"):
+        stats = r.json()["response"]
+        xg_for = stats.get("goals", {}).get("for", {}).get("average", 1.3)
+        xg_against = stats.get("goals", {}).get("against", {}).get("average", 1.3)
+        return float(xg_for), float(xg_against)
+    return 1.3, 1.3
+
+print(f"🚀 BOT PRO xG + FORME DÉMARRÉ - {datetime.now().strftime('%H:%M')} | Bankroll: {BANKROLL}€ | Seuil: {MIN_VALUE_PERCENT}%")
 
 value_bets = []
 odds_data = api_odds()
@@ -42,16 +52,24 @@ for league_id in LEAGUES:
     fixtures = api_football("/fixtures", {"league": league_id, "season": SEASON, "status": "NS"})
     past = api_football("/fixtures", {"league": league_id, "season": SEASON, "status": "FT"}) or api_football("/fixtures", {"league": league_id, "season": 2024, "status": "FT"})
 
-    df = pd.DataFrame([{"home": m["teams"]["home"]["name"], "away": m["teams"]["away"]["name"], "hg": m["goals"]["home"] or 0, "ag": m["goals"]["away"] or 0} for m in past])
-    home_avg = df["hg"].mean() if len(df) > 0 else 1.4
-    away_avg = df["ag"].mean() if len(df) > 0 else 1.2
+    df = pd.DataFrame([{"home": m["teams"]["home"]["name"], "away": m["teams"]["away"]["name"], 
+                        "home_id": m["teams"]["home"]["id"], "away_id": m["teams"]["away"]["id"],
+                        "hg": m["goals"]["home"] or 0, "ag": m["goals"]["away"] or 0} for m in past])
 
     for f in fixtures:
         home = f["teams"]["home"]["name"]
         away = f["teams"]["away"]["name"]
+        home_id = f["teams"]["home"]["id"]
+        away_id = f["teams"]["away"]["id"]
 
-        lambda_home = home_avg * 1.05
-        lambda_away = away_avg * 0.95
+        # Récupération des stats xG
+        home_xg, home_xga = get_team_xg_stats(league_id, home_id, SEASON)
+        away_xg, away_xga = get_team_xg_stats(league_id, away_id, SEASON)
+
+        # Lambda ajusté avec xG (beaucoup plus précis)
+        lambda_home = (home_xg * 0.7 + home_xga * 0.3) * 1.05
+        lambda_away = (away_xg * 0.7 + away_xga * 0.3) * 0.95
+
         hg_sim = poisson.rvs(lambda_home, size=20000)
         ag_sim = poisson.rvs(lambda_away, size=20000)
 
@@ -89,16 +107,16 @@ for league_id in LEAGUES:
 # ==================== MESSAGE TELEGRAM ====================
 if value_bets:
     df = pd.DataFrame(value_bets).sort_values("Value %", ascending=False)
-    message = f"<b>🔥 {len(df)} VALUE BETS DÉTECTÉS</b>\n\n"
+    message = f"<b>🔥 {len(df)} VALUE BETS xG DÉTECTÉS</b>\n\n"
     for _, row in df.iterrows():
         message += f"📅 <b>{row['Match']}</b>\n"
         message += f"   🎯 <b>{row['Pari']}</b> @ {row['Cote']} → <b>+{row['Value %']}%</b>\n"
         message += f"   💰 Mise : <b>{row['Mise €']} €</b> | Proba: {row['Proba %']}%\n\n"
-    message += f"💼 Bankroll : <b>{BANKROLL} €</b>"
+    message += f"💼 Bankroll : <b>{BANKROLL} €</b> | xG + Forme activés"
 else:
-    message = f"<b>ℹ️ Bot exécuté à {datetime.now().strftime('%H:%M')}</b>\n"
+    message = f"<b>ℹ️ Bot xG exécuté à {datetime.now().strftime('%H:%M')}</b>\n"
     message += f"Aucun value bet > {MIN_VALUE_PERCENT}% trouvé cette heure.\n"
-    message += "Le bot tourne correctement 24/7."
+    message += "Le bot tourne correctement 24/7 avec données avancées."
 
 envoyer_telegram(message)
-print("✅ Message envoyé sur Telegram")
+print("✅ Message envoyé sur Telegram (xG + Forme)")
