@@ -13,6 +13,7 @@ import requests
 
 import backtest as bt
 import main
+import roi
 
 
 # =============================================================================
@@ -474,6 +475,56 @@ class TestDedup(unittest.TestCase):
         self.assertNotIn("notified:vieux|1", main._CACHE)
         self.assertIn("frais", main._CACHE)
         self.assertIn("heartbeat_date", main._CACHE)  # entrée non datée préservée
+
+
+# =============================================================================
+# SUIVI DU ROI
+# =============================================================================
+class TestRoi(unittest.TestCase):
+    def test_pari_gagnant(self):
+        s = roi.summarise([{"cote": "2.0", "mise": "5", "resultat": "G"}])
+        self.assertEqual(s["n"], 1)
+        self.assertAlmostEqual(s["total_retour"], 10.0)
+        self.assertAlmostEqual(s["profit"], 5.0)
+        self.assertAlmostEqual(s["roi"], 100.0)
+
+    def test_pari_perdant(self):
+        s = roi.summarise([{"cote": "2.0", "mise": "5", "resultat": "P"}])
+        self.assertAlmostEqual(s["profit"], -5.0)
+        self.assertAlmostEqual(s["roi"], -100.0)
+
+    def test_pari_annule_rembourse(self):
+        s = roi.summarise([{"cote": "2.0", "mise": "5", "resultat": "A"}])
+        self.assertAlmostEqual(s["profit"], 0.0)
+        self.assertEqual(s["decisifs"], 0)
+
+    def test_pari_en_attente(self):
+        s = roi.summarise([{"cote": "2.0", "mise": "5", "resultat": ""}])
+        self.assertEqual(s["n"], 0)
+        self.assertEqual(s["pending"], 1)
+
+    def test_ligne_invalide(self):
+        rows = [{"cote": "abc", "mise": "5", "resultat": "G"},
+                {"cote": "2.0", "mise": "5", "resultat": "X"},
+                {"cote": "0", "mise": "5", "resultat": "G"}]
+        s = roi.summarise(rows)
+        self.assertEqual(s["invalid"], 3)
+        self.assertEqual(s["n"], 0)
+
+    def test_bilan_mixte(self):
+        rows = [{"cote": "2.0", "mise": "5", "resultat": "G"},
+                {"cote": "3.0", "mise": "5", "resultat": "P"},
+                {"cote": "2.0", "mise": "5", "resultat": "A"}]
+        s = roi.summarise(rows)
+        self.assertEqual(s["n"], 3)
+        self.assertAlmostEqual(s["total_mise"], 15.0)
+        self.assertAlmostEqual(s["profit"], 0.0)
+        self.assertAlmostEqual(s["taux"], 50.0)
+
+    def test_aucune_donnee(self):
+        s = roi.summarise([])
+        self.assertEqual(s["n"], 0)
+        self.assertEqual(s["roi"], 0.0)
 
 
 if __name__ == "__main__":
