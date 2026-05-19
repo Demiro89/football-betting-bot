@@ -68,13 +68,14 @@ recalibrez.
 Un tableau de bord web (dossier `docs/`) affiche le bilan, la courbe de
 bankroll et l'historique des paris, optimise pour mobile.
 
-Hebergement gratuit via **Netlify** (compatible depot prive) :
+Hebergement gratuit via **Cloudflare Pages** (compatible depot prive) :
 
-1. Creer un compte sur [netlify.com](https://www.netlify.com) (connexion avec GitHub).
-2. **Add new site** -> **Import an existing project** -> **GitHub** -> autoriser ->
-   choisir le depot `football-betting-bot`.
-3. Netlify lit `netlify.toml` (dossier publie : `docs`) -> **Deploy**.
-4. Netlify fournit l'adresse du tableau de bord (`xxx.netlify.app`).
+1. Creer un compte sur [dash.cloudflare.com](https://dash.cloudflare.com).
+2. **Workers & Pages** -> **Create** -> onglet **Pages** -> **Connect to Git** ->
+   autoriser GitHub -> choisir le depot `football-betting-bot`.
+3. Reglages de build : *Framework preset* = **None**, *Build command* = **vide**,
+   *Build output directory* = **`docs`** -> **Save and Deploy**.
+4. Cloudflare fournit l'adresse du tableau de bord (`xxx.pages.dev`).
 
 Il se redeploie automatiquement a chaque modification de `docs/resultats.csv`.
 Sur mobile, « Ajouter a l'ecran d'accueil » lui donne l'aspect d'une appli.
