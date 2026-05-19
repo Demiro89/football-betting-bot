@@ -14,9 +14,9 @@ Variables d'environnement requises (voir `.env.example`) :
 | `BOT_TOKEN` | Token du bot Telegram |
 | `CHAT_ID` | ID du chat Telegram |
 
-Variables optionnelles : `BANKROLL` (defaut 1000), `MIN_VALUE_PERCENT` (defaut 6),
+Variables optionnelles : `BANKROLL` (defaut 100), `MIN_VALUE_PERCENT` (defaut 6),
 `KELLY_FRACTION` (defaut 0.25), `MAX_BET_FRACTION` (defaut 0.05),
-`MIN_BET` (defaut 5), `DAYS_AHEAD` (defaut 3), `BOOKMAKER` (defaut unibet),
+`MIN_BET` (defaut 1), `DAYS_AHEAD` (defaut 3), `BOOKMAKER` (defaut unibet),
 `ENABLE_TOTALS` (defaut false ; active le marche Over/Under mais double le
 cout The Odds API par requete), `TELEGRAM_QUIET` (defaut true ; aucun message
 quand il n'y a pas de nouveau pari), `DEDUP_HOURS` (defaut 24 ; fenetre pendant
