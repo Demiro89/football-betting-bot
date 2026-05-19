@@ -68,11 +68,15 @@ recalibrez.
 Un tableau de bord web (dossier `docs/`) affiche le bilan, la courbe de
 bankroll et l'historique des paris, optimise pour mobile.
 
-Activation unique : **Settings -> Pages -> Source : Deploy from a branch ->
-Branch `main` / dossier `/docs` -> Save**. Le tableau de bord est alors servi
-sur `https://<utilisateur>.github.io/football-betting-bot/`.
+Hebergement gratuit via **Netlify** (compatible depot prive) :
 
-Il se met a jour automatiquement a chaque modification de `docs/resultats.csv`.
+1. Creer un compte sur [netlify.com](https://www.netlify.com) (connexion avec GitHub).
+2. **Add new site** -> **Import an existing project** -> **GitHub** -> autoriser ->
+   choisir le depot `football-betting-bot`.
+3. Netlify lit `netlify.toml` (dossier publie : `docs`) -> **Deploy**.
+4. Netlify fournit l'adresse du tableau de bord (`xxx.netlify.app`).
+
+Il se redeploie automatiquement a chaque modification de `docs/resultats.csv`.
 Sur mobile, « Ajouter a l'ecran d'accueil » lui donne l'aspect d'une appli.
 Les alertes restent envoyees par Telegram.
 

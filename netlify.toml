@@ -1,0 +1,4 @@
+# Configuration Netlify — héberge le tableau de bord (dossier docs/).
+# Site statique : aucune compilation, on publie simplement le dossier.
+[build]
+  publish = "docs"
