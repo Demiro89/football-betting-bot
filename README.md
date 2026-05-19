@@ -68,13 +68,13 @@ recalibrez.
 Un tableau de bord web (dossier `docs/`) affiche le bilan, la courbe de
 bankroll et l'historique des paris, optimise pour mobile.
 
-Hebergement gratuit via **Cloudflare Pages** (compatible depot prive) :
+Hebergement gratuit via **Cloudflare** (compatible depot prive) :
 
 1. Creer un compte sur [dash.cloudflare.com](https://dash.cloudflare.com).
-2. **Workers & Pages** -> **Create** -> onglet **Pages** -> **Connect to Git** ->
+2. **Workers & Pages** -> **Create** -> **Import a repository** ->
    autoriser GitHub -> choisir le depot `football-betting-bot`.
 3. Le fichier `wrangler.toml` indique deja le dossier a publier (`docs`) :
-   laisser les reglages par defaut -> **Save and Deploy**.
+   laisser les reglages par defaut -> **Deploy**.
 4. Cloudflare fournit l'adresse du tableau de bord (`xxx.pages.dev`).
 
 Il se redeploie automatiquement a chaque modification de `docs/resultats.csv`.

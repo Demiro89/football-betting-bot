@@ -1,4 +1,7 @@
-# Configuration Cloudflare Pages — indique le dossier a publier.
-# Site statique : aucune compilation, on publie le dossier docs/.
+# Configuration Cloudflare — publie le tableau de bord (dossier docs/).
+# Site statique servi via Cloudflare Workers (static assets), aucune compilation.
 name = "football-betting-bot"
-pages_build_output_dir = "docs"
+compatibility_date = "2026-05-19"
+
+[assets]
+directory = "./docs"
