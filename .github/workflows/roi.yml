@@ -1,0 +1,25 @@
+name: Bilan ROI
+
+# Lancement manuel : onglet Actions -> "Bilan ROI" -> Run workflow.
+# Affiche le bilan (profit, rendement, taux de reussite) calcule a partir
+# de resultats.csv. Aucun appel API, aucun quota consomme.
+on:
+  workflow_dispatch:
+
+jobs:
+  roi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Calculer le ROI
+        run: |
+          echo '## Bilan ROI' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          python roi.py | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

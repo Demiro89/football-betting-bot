@@ -62,6 +62,9 @@ Puis affichez votre bilan (mise totale, profit, rendement, taux de reussite) :
 python roi.py
 ```
 
+Sans rien installer : onglet **Actions** -> workflow **« Bilan ROI »** ->
+**Run workflow**. Le bilan s'affiche sur la page du run.
+
 Tant que vous avez moins de ~30 paris, le resultat n'est pas significatif.
 Si le ROI reste negatif au-dela, le modele perd de l'argent : arretez ou
 recalibrez.
