@@ -46,7 +46,7 @@ baseline ne peut pas etre rentable.
 ## Suivi du ROI
 
 En argent reel, mesurez vos resultats reels. Apres chaque pari place, ajoutez
-une ligne a `resultats.csv` (modifiable directement sur GitHub via l'icone
+une ligne a `docs/resultats.csv` (modifiable directement sur GitHub via l'icone
 crayon) :
 
 ```
@@ -56,18 +56,25 @@ date,match,pari,cote,mise,resultat
 
 `resultat` : `G` = gagne, `P` = perdu, `A` = annule/rembourse, vide = en attente.
 
-Puis affichez votre bilan (mise totale, profit, rendement, taux de reussite) :
-
-```bash
-python roi.py
-```
-
-Sans rien installer : onglet **Actions** -> workflow **« Bilan ROI »** ->
-**Run workflow**. Le bilan s'affiche sur la page du run.
+Pour afficher le bilan : `python roi.py`, ou onglet **Actions** ->
+workflow **« Bilan ROI »** -> **Run workflow**.
 
 Tant que vous avez moins de ~30 paris, le resultat n'est pas significatif.
 Si le ROI reste negatif au-dela, le modele perd de l'argent : arretez ou
 recalibrez.
+
+## Tableau de bord mobile
+
+Un tableau de bord web (dossier `docs/`) affiche le bilan, la courbe de
+bankroll et l'historique des paris, optimise pour mobile.
+
+Activation unique : **Settings -> Pages -> Source : Deploy from a branch ->
+Branch `main` / dossier `/docs` -> Save**. Le tableau de bord est alors servi
+sur `https://<utilisateur>.github.io/football-betting-bot/`.
+
+Il se met a jour automatiquement a chaque modification de `docs/resultats.csv`.
+Sur mobile, « Ajouter a l'ecran d'accueil » lui donne l'aspect d'une appli.
+Les alertes restent envoyees par Telegram.
 
 ## Tests
 
