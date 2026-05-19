@@ -1,0 +1,14 @@
+{
+  "name": "Football Betting Bot",
+  "short_name": "Bot Paris",
+  "description": "Suivi des value bets et du ROI",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

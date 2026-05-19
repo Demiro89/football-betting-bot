@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Bot Paris">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>Football Betting Bot</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --line: #21262d;
+    --txt: #e6edf3; --dim: #8b949e;
+    --green: #3fb950; --red: #f85149; --yellow: #d29922; --accent: #1f6feb;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--txt);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 16px; max-width: 720px; margin: 0 auto;
+    padding-bottom: 40px;
+  }
+  header { text-align: center; margin: 8px 0 20px; }
+  header h1 { font-size: 1.25rem; }
+  header p { color: var(--dim); font-size: .85rem; margin-top: 4px; }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px;
+  }
+  .card .label { color: var(--dim); font-size: .75rem; text-transform: uppercase; letter-spacing: .5px; }
+  .card .value { font-size: 1.5rem; font-weight: 700; margin-top: 6px; }
+  .card .sub { color: var(--dim); font-size: .75rem; margin-top: 2px; }
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  section { margin-top: 22px; }
+  section h2 { font-size: .8rem; color: var(--dim); text-transform: uppercase;
+    letter-spacing: .5px; margin-bottom: 10px; }
+  .chart {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px;
+  }
+  .chart svg { width: 100%; height: auto; display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  th, td { text-align: left; padding: 9px 6px; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 600; font-size: .7rem; text-transform: uppercase; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .badge { padding: 2px 8px; border-radius: 20px; font-size: .72rem; font-weight: 700; }
+  .b-G { background: rgba(63,185,80,.15); color: var(--green); }
+  .b-P { background: rgba(248,81,73,.15); color: var(--red); }
+  .b-A { background: rgba(139,148,158,.15); color: var(--dim); }
+  .b-W { background: rgba(210,153,34,.15); color: var(--yellow); }
+  .empty, .error {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 24px; text-align: center; color: var(--dim);
+  }
+  .error { color: var(--red); }
+  .note {
+    margin-top: 14px; padding: 12px; border-radius: 10px; font-size: .8rem;
+    border: 1px solid var(--line); background: var(--card); color: var(--dim);
+  }
+  footer { margin-top: 24px; text-align: center; color: var(--dim); font-size: .72rem; }
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+    padding: 9px 16px; font-size: .85rem; font-weight: 600; cursor: pointer;
+  }
+  .toolbar { display: flex; justify-content: center; margin-top: 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚽ Football Betting Bot</h1>
+  <p>Suivi des paris et du ROI</p>
+</header>
+<main id="app"><p class="empty">Chargement…</p></main>
+<div class="toolbar"><button onclick="charger()">Rafraîchir</button></div>
+<footer id="footer"></footer>
+
+<script>
+const BANKROLL_DEPART = 100;
+const SEUIL_FIABLE = 30;
+
+function parseCSV(text) {
+  const lignes = text.trim().split(/\r?\n/);
+  const rows = [];
+  for (let i = 1; i < lignes.length; i++) {
+    const l = lignes[i].trim();
+    if (!l) continue;
+    const p = l.split(',');
+    if (p.length < 6) continue;
+    rows.push({
+      date: p[0].trim(),
+      match: p.slice(1, p.length - 4).join(',').trim(),
+      pari: p[p.length - 4].trim(),
+      cote: parseFloat(p[p.length - 3]),
+      mise: parseFloat(p[p.length - 2]),
+      resultat: (p[p.length - 1] || '').trim().toUpperCase(),
+    });
+  }
+  return rows;
+}
+
+function bilan(rows) {
+  let pending = 0, miseTotal = 0, retourTotal = 0, wins = 0, decisifs = 0, n = 0;
+  let bankroll = BANKROLL_DEPART;
+  const courbe = [BANKROLL_DEPART];
+  for (const r of rows) {
+    if (!['G', 'P', 'A'].includes(r.resultat)) { pending++; continue; }
+    if (!(r.cote > 0) || !(r.mise > 0)) continue;
+    n++; miseTotal += r.mise;
+    let retour = 0;
+    if (r.resultat === 'G') { retour = r.cote * r.mise; wins++; decisifs++; }
+    else if (r.resultat === 'P') { decisifs++; }
+    else if (r.resultat === 'A') { retour = r.mise; }
+    retourTotal += retour;
+    bankroll += retour - r.mise;
+    courbe.push(bankroll);
+  }
+  const profit = retourTotal - miseTotal;
+  return {
+    n, pending, miseTotal, retourTotal, profit,
+    roi: miseTotal ? profit / miseTotal * 100 : 0,
+    wins, decisifs,
+    taux: decisifs ? wins / decisifs * 100 : 0,
+    bankroll, courbe,
+  };
+}
+
+function eur(v) { return (v >= 0 ? '+' : '') + v.toFixed(2) + ' €'; }
+function signe(v) { return v >= 0 ? 'pos' : 'neg'; }
+
+function courbeSVG(vals) {
+  if (vals.length < 2) return '<p style="color:var(--dim);font-size:.8rem">Pas encore assez de paris pour tracer la courbe.</p>';
+  const W = 320, H = 90, pad = 6;
+  let min = Math.min(...vals), max = Math.max(...vals);
+  if (min === max) { min -= 1; max += 1; }
+  const x = i => i / (vals.length - 1) * W;
+  const y = v => H - pad - (v - min) / (max - min) * (H - 2 * pad);
+  const pts = vals.map((v, i) => x(i).toFixed(1) + ',' + y(v).toFixed(1)).join(' ');
+  const couleur = vals[vals.length - 1] >= vals[0] ? 'var(--green)' : 'var(--red)';
+  const base = y(BANKROLL_DEPART).toFixed(1);
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <line x1="0" y1="${base}" x2="${W}" y2="${base}" stroke="var(--line)" stroke-width="1" stroke-dasharray="4 4"/>
+    <polyline points="${pts}" fill="none" stroke="${couleur}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+  </svg>`;
+}
+
+function rendre(rows) {
+  const b = bilan(rows);
+  const app = document.getElementById('app');
+
+  if (rows.length === 0) {
+    app.innerHTML = '<p class="empty">Aucun pari enregistré pour l\'instant.<br>'
+      + 'Ajoute tes paris dans <b>docs/resultats.csv</b> sur GitHub.</p>';
+    document.getElementById('footer').textContent = 'Actualisé : ' + new Date().toLocaleString('fr-FR');
+    return;
+  }
+
+  const cards = `<div class="cards">
+    <div class="card">
+      <div class="label">Profit / Perte</div>
+      <div class="value ${signe(b.profit)}">${eur(b.profit)}</div>
+      <div class="sub">bankroll ${b.bankroll.toFixed(2)} €</div>
+    </div>
+    <div class="card">
+      <div class="label">Rendement (ROI)</div>
+      <div class="value ${signe(b.roi)}">${(b.roi >= 0 ? '+' : '') + b.roi.toFixed(1)} %</div>
+      <div class="sub">mise totale ${b.miseTotal.toFixed(2)} €</div>
+    </div>
+    <div class="card">
+      <div class="label">Taux de réussite</div>
+      <div class="value">${b.taux.toFixed(0)} %</div>
+      <div class="sub">${b.wins} gagnés / ${b.decisifs}</div>
+    </div>
+    <div class="card">
+      <div class="label">Paris</div>
+      <div class="value">${b.n}</div>
+      <div class="sub">${b.pending} en attente</div>
+    </div>
+  </div>`;
+
+  const chart = `<section><h2>Évolution du bankroll</h2>
+    <div class="chart">${courbeSVG(b.courbe)}</div></section>`;
+
+  const lignes = rows.slice().reverse().map(r => {
+    const cls = ['G', 'P', 'A'].includes(r.resultat) ? 'b-' + r.resultat : 'b-W';
+    const txt = { G: 'Gagné', P: 'Perdu', A: 'Annulé' }[r.resultat] || 'En attente';
+    const cote = isNaN(r.cote) ? '—' : r.cote.toFixed(2);
+    const mise = isNaN(r.mise) ? '—' : r.mise.toFixed(2) + ' €';
+    return `<tr>
+      <td>${r.date}</td>
+      <td>${r.match}<br><span style="color:var(--dim)">${r.pari} @ ${cote}</span></td>
+      <td class="num">${mise}</td>
+      <td><span class="badge ${cls}">${txt}</span></td>
+    </tr>`;
+  }).join('');
+
+  const table = `<section><h2>Historique des paris</h2>
+    <table><thead><tr><th>Date</th><th>Match</th><th class="num">Mise</th><th>Résultat</th></tr></thead>
+    <tbody>${lignes}</tbody></table></section>`;
+
+  let note = '';
+  if (b.n < SEUIL_FIABLE) {
+    note = `<div class="note">⚠️ Échantillon trop petit (${b.n}/${SEUIL_FIABLE} paris) — `
+      + `le ROI n'est pas encore significatif. Garde des mises prudentes.</div>`;
+  } else if (b.roi < 0) {
+    note = '<div class="note">⚠️ ROI négatif sur un échantillon suffisant — '
+      + 'le modèle perd de l\'argent. Mieux vaut arrêter ou recalibrer.</div>';
+  }
+
+  app.innerHTML = cards + chart + table + note;
+  document.getElementById('footer').textContent = 'Actualisé : ' + new Date().toLocaleString('fr-FR');
+}
+
+async function charger() {
+  const app = document.getElementById('app');
+  app.innerHTML = '<p class="empty">Chargement…</p>';
+  try {
+    const resp = await fetch('resultats.csv?t=' + Date.now());
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    rendre(parseCSV(await resp.text()));
+  } catch (e) {
+    app.innerHTML = '<p class="error">Impossible de charger resultats.csv<br>' + e.message + '</p>';
+  }
+}
+
+charger();
+</script>
+</body>
+</html>

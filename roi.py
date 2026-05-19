@@ -14,7 +14,7 @@ import csv
 import sys
 from pathlib import Path
 
-RESULTS_FILE = Path("resultats.csv")
+RESULTS_FILE = Path("docs/resultats.csv")
 SIGNIFICANT_SAMPLE = 30  # nombre de paris en dessous duquel le ROI n'est pas fiable
 
 
