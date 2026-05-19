@@ -63,11 +63,11 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
 # Paramètres
-BANKROLL = _env_float("BANKROLL", 1000.0)
+BANKROLL = _env_float("BANKROLL", 100.0)
 MIN_VALUE = _env_float("MIN_VALUE_PERCENT", 6.0) / 100.0   # edge minimal pour parier
 KELLY_FRACTION = _env_float("KELLY_FRACTION", 0.25)        # quart de Kelly
 MAX_BET_FRACTION = _env_float("MAX_BET_FRACTION", 0.05)    # plafond : 5 % de bankroll
-MIN_BET = _env_float("MIN_BET", 5.0)                       # mise minimale viable
+MIN_BET = _env_float("MIN_BET", 1.0)                       # mise minimale viable
 DAYS_AHEAD = _env_int("DAYS_AHEAD", 3)                     # fenêtre de matchs analysés
 BOOKMAKER = os.getenv("BOOKMAKER", "unibet").lower()
 # Active le marché Over/Under (totals). Double le coût The Odds API par requête

@@ -30,8 +30,8 @@ class TestKelly(unittest.TestCase):
         self.assertEqual(main.kelly_stake(0.9, 1.0, 1000), 0.0)
 
     def test_mise_sous_minimum_donne_zero(self):
-        # edge minuscule => mise < MIN_BET => écartée
-        self.assertEqual(main.kelly_stake(0.505, 2.0, 1000), 0.0)
+        # edge minuscule + petit bankroll => mise < MIN_BET => écartée
+        self.assertEqual(main.kelly_stake(0.51, 2.0, 10), 0.0)
 
     def test_plafond_respecte(self):
         stake = main.kelly_stake(0.95, 3.0, 1000)
