@@ -43,6 +43,29 @@ donnees) et compare le modele a une baseline de frequences de base
 (score de Brier, log-loss, calibration). Un modele qui ne bat pas la
 baseline ne peut pas etre rentable.
 
+## Suivi du ROI
+
+En argent reel, mesurez vos resultats reels. Apres chaque pari place, ajoutez
+une ligne a `resultats.csv` (modifiable directement sur GitHub via l'icone
+crayon) :
+
+```
+date,match,pari,cote,mise,resultat
+2026-05-20,Arsenal vs Chelsea,1,2.10,5,G
+```
+
+`resultat` : `G` = gagne, `P` = perdu, `A` = annule/rembourse, vide = en attente.
+
+Puis affichez votre bilan (mise totale, profit, rendement, taux de reussite) :
+
+```bash
+python roi.py
+```
+
+Tant que vous avez moins de ~30 paris, le resultat n'est pas significatif.
+Si le ROI reste negatif au-dela, le modele perd de l'argent : arretez ou
+recalibrez.
+
 ## Tests
 
 ```bash
