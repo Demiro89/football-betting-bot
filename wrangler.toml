@@ -1,0 +1,4 @@
+# Configuration Cloudflare Pages — indique le dossier a publier.
+# Site statique : aucune compilation, on publie le dossier docs/.
+name = "football-betting-bot"
+pages_build_output_dir = "docs"
