@@ -3,6 +3,19 @@
 Bot de value betting football : modele de Poisson / Dixon-Coles confronte aux
 cotes d'un bookmaker (via The Odds API), avec notifications Telegram.
 
+> 🆕 **Application ML Coupe du Monde** (`worldcup/`, `app.py`) : une seconde
+> approche, **autonome**, basee sur un classifieur **XGBoost / Random Forest**
+> calibre, des **cotes en direct multi-bookmakers** et une interface
+> **Streamlit** deployable en ligne. Voir [`ARCHITECTURE_ML.md`](ARCHITECTURE_ML.md).
+> Demarrage local : `pip install -r requirements.txt && streamlit run app.py`
+> (le modele s'entraine automatiquement au premier lancement).
+>
+> **Deploiement gratuit (Streamlit Cloud) :** poussez le depot ->
+> [share.streamlit.io](https://share.streamlit.io) -> *New app* -> fichier
+> principal `app.py` -> dans **Secrets**, ajoutez `THE_ODDS_API_KEY` (voir
+> `.streamlit/secrets.toml.example`). L'app obtient une URL publique (mobile
+> incluse) et se redeploie a chaque push.
+
 ## Configuration
 
 Variables d'environnement requises (voir `.env.example`) :

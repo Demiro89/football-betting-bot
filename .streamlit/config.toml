@@ -1,0 +1,17 @@
+# Configuration de l'application Streamlit (thème + serveur).
+# Sur Streamlit Cloud, le thème est appliqué ; les options serveur sont gérées
+# par la plateforme.
+
+[theme]
+base = "dark"
+primaryColor = "#00C853"          # vert "value"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#1B1F2A"
+font = "sans serif"
+
+[server]
+headless = true
+runOnSave = true
+
+[browser]
+gatherUsageStats = false

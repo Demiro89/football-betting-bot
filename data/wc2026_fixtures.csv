@@ -1,0 +1,11 @@
+date,home_team,away_team,neutral,tournament,odd_1,odd_N,odd_2
+2026-06-11,Mexico,Spain,False,FIFA World Cup,3.40,3.30,2.15
+2026-06-12,Canada,Croatia,False,FIFA World Cup,2.90,3.10,2.55
+2026-06-12,United States,Wales,False,FIFA World Cup,1.75,3.60,4.80
+2026-06-13,Argentina,Nigeria,True,FIFA World Cup,1.55,4.00,6.00
+2026-06-13,France,Denmark,True,FIFA World Cup,1.70,3.70,5.20
+2026-06-14,Brazil,Serbia,True,FIFA World Cup,1.50,4.20,6.50
+2026-06-14,England,Senegal,True,FIFA World Cup,1.80,3.50,4.60
+2026-06-15,Germany,Japan,True,FIFA World Cup,1.95,3.50,3.80
+2026-06-15,Netherlands,Ecuador,True,FIFA World Cup,1.65,3.80,5.50
+2026-06-16,Portugal,Uruguay,True,FIFA World Cup,2.30,3.20,3.20

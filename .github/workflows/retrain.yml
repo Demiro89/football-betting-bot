@@ -1,0 +1,58 @@
+name: Réentraînement hebdomadaire du modèle
+
+# Robot d'auto-mise à jour : retélécharge les données internationales fraîches,
+# réentraîne le modèle ML et met à jour models/wc_model.joblib SUR LA BRANCHE DE
+# DÉPLOIEMENT (celle que lit l'app Streamlit). L'app recharge alors le modèle.
+#
+# NB : GitHub n'exécute les workflows planifiés que depuis la branche par défaut.
+# Ce fichier doit donc vivre sur la branche par défaut (main), mais il agit sur
+# la branche de déploiement définie ci-dessous — d'où aucun changement à faire
+# côté Streamlit.
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"      # tous les lundis à 04h00 UTC
+  workflow_dispatch: {}        # + bouton « Run workflow » (lancement manuel)
+
+permissions:
+  contents: write
+
+env:
+  DEPLOY_BRANCH: claude/zen-bohr-rx7MC   # branche lue par l'app Streamlit
+
+concurrency:
+  group: retrain
+  cancel-in-progress: false
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer la branche de déploiement
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_BRANCH }}
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Installer les dépendances
+        run: pip install -r requirements.txt
+
+      - name: Réentraîner le modèle (données fraîches + backtest)
+        run: python train.py
+
+      - name: Committer le modèle s'il a changé
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add models/wc_model.joblib
+          if git diff --staged --quiet; then
+            echo "Modèle inchangé — rien à committer."
+          else
+            git commit -m "🤖 Réentraînement hebdomadaire du modèle [skip ci]"
+            git push origin "HEAD:${{ env.DEPLOY_BRANCH }}"
+            echo "Modèle mis à jour et poussé sur ${{ env.DEPLOY_BRANCH }}."
+          fi
