@@ -71,7 +71,7 @@ def fetch_events(sport_key: str, *, api_key: str | None = None,
 
     Renvoie une liste d'événements bruts The Odds API (vide si rien/échec).
     """
-    api_key = api_key or config.THE_ODDS_API_KEY
+    api_key = api_key or config.get_odds_api_key()
     regions = regions or config.ODDS_REGIONS
     if not api_key:
         return []

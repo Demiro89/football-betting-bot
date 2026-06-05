@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""ÉTAPE 4 — Interface web Streamlit (temps réel).
+"""ÉTAPE 4 — Application web Streamlit (temps réel, déployable sur Streamlit Cloud).
 
-Lancement :
-    pip install -r requirements-ml.txt
-    python train.py                      # entraîne et sauvegarde le modèle (une fois)
-    export THE_ODDS_API_KEY=ta_cle       # pour les cotes en direct (optionnel)
+Lancement local :
+    pip install -r requirements.txt
+    export THE_ODDS_API_KEY=ta_cle       # cotes en direct (optionnel), ou .env
     streamlit run app.py
 
+Déploiement Streamlit Cloud : pousser le dépôt, créer l'app sur
+share.streamlit.io (fichier principal = app.py), renseigner THE_ODDS_API_KEY
+dans les Secrets. Le modèle s'entraîne automatiquement au premier lancement
+(aucune étape manuelle).
+
 Fonctionnalités :
-  - Cotes EN DIRECT multi-bookmakers (The Odds API) avec LINE SHOPPING
-    (meilleure cote par issue) + auto-refresh.
+  - Cotes EN DIRECT multi-bookmakers (The Odds API) avec LINE SHOPPING + auto-refresh.
   - Prédictions 1/N/2 : modèle ML, consensus de marché, ou ensemble des deux.
   - Alertes « Value Bets » mises en évidence + mise Kelly recommandée.
   - Suivi CLV (Closing Line Value) et ROI réel des paris journalisés.
@@ -19,27 +22,52 @@ Fonctionnalités :
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 
-import pandas as pd
 import streamlit as st
 
-from worldcup import config, live_odds, tracking
-from worldcup.fixtures import load_fixtures, odds_dict
-from worldcup.model import MatchPredictor
-from worldcup.value import ensemble_probabilities, find_value_bets
+# Pont secrets -> variables d'environnement, AVANT d'importer worldcup (config
+# lit les variables d'env à l'import). Permet d'utiliser les Secrets Streamlit
+# Cloud sans rien committer.
+try:
+    for _k in ("THE_ODDS_API_KEY", "SPORT_KEYS", "ODDS_REGIONS", "BANKROLL",
+               "MIN_VALUE_PERCENT", "KELLY_FRACTION", "ENSEMBLE_MARKET_WEIGHT"):
+        if _k in st.secrets:
+            os.environ.setdefault(_k, str(st.secrets[_k]))
+except Exception:
+    pass  # pas de secrets.toml en local : on utilise .env / l'environnement
+
+import pandas as pd  # noqa: E402
+
+from worldcup import config, data, live_odds, tracking  # noqa: E402
+from worldcup.fixtures import load_fixtures, odds_dict  # noqa: E402
+from worldcup.model import MatchPredictor  # noqa: E402
+from worldcup.value import ensemble_probabilities, find_value_bets  # noqa: E402
 
 st.set_page_config(page_title="Coupe du Monde — Value Bets ML", page_icon="⚽", layout="wide")
 
 
 # ---------------------------------------------------------------------------
-# Chargement (mis en cache)
+# Chargement / auto-entraînement du modèle (mis en cache pour la session)
 # ---------------------------------------------------------------------------
-@st.cache_resource(show_spinner="Chargement du modèle…")
-def get_model() -> MatchPredictor | None:
-    if not config.MODEL_FILE.exists():
-        return None
-    return MatchPredictor.load()
+@st.cache_resource(show_spinner=False)
+def get_model() -> MatchPredictor:
+    """Charge le modèle ; l'entraîne automatiquement s'il n'existe pas encore.
+
+    Rend l'app auto-suffisante sur Streamlit Cloud (aucun `train.py` manuel).
+    """
+    if config.MODEL_FILE.exists():
+        return MatchPredictor.load()
+    with st.spinner("Premier lancement : entraînement du modèle (téléchargement "
+                    "des données + apprentissage, ~20 s)…"):
+        df = data.load_results()
+        predictor = MatchPredictor().fit(df, calibrate=True)
+        try:
+            predictor.save()
+        except OSError:
+            pass  # système de fichiers en lecture seule : on garde le modèle en mémoire
+    return predictor
 
 
 def predictions_for(model, home, away, date, neutral, tournament, consensus, market_weight):
@@ -86,8 +114,9 @@ def render_match_card(title, subtitle, final_probs, model_probs, odds, books, be
 # ---------------------------------------------------------------------------
 st.sidebar.title("⚙️ Paramètres")
 
+_has_key = bool(config.get_odds_api_key())
 source = st.sidebar.radio("Source des matchs", ["🔴 Cotes en direct (API)", "📄 CSV local"],
-                          index=0 if config.THE_ODDS_API_KEY else 1)
+                          index=0 if _has_key else 1)
 live_mode = source.startswith("🔴")
 
 prob_source = st.sidebar.selectbox(
@@ -127,10 +156,6 @@ st.title("⚽ Coupe du Monde — Détecteur de Value Bets (ML + temps réel)")
 st.caption("XGBoost calibré · line shopping multi-books · consensus de marché · gestion Kelly")
 
 model = get_model()
-if model is None:
-    st.error("Aucun modèle entraîné. Lancez d'abord : `python train.py`")
-    st.stop()
-
 meta = model.metadata
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Moteur", meta.get("backend", "?"))
@@ -138,9 +163,10 @@ m2.metric("Matchs d'entraînement", f"{meta.get('n_train', 0):,}".replace(",", "
 m3.metric("Calibré", "Oui" if meta.get("calibrated") else "Non")
 m4.metric("Données jusqu'au", meta.get("last_match_date", "?"))
 
-if live_mode and not config.THE_ODDS_API_KEY:
+if live_mode and not config.get_odds_api_key():
     st.warning("`THE_ODDS_API_KEY` non définie — bascule sur le CSV local. "
-               "Ajoutez la clé (gratuite sur the-odds-api.com) pour les cotes en direct.")
+               "Ajoutez la clé (gratuite sur the-odds-api.com) dans les Secrets "
+               "Streamlit Cloud (ou .env en local) pour les cotes en direct.")
     live_mode = False
 
 

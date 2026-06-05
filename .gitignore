@@ -7,3 +7,5 @@ __pycache__/
 .cache_ml/
 models/
 data/tracked_bets.csv
+# Secrets Streamlit (ne jamais committer ; garder uniquement le .example)
+.streamlit/secrets.toml

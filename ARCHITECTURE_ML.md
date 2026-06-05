@@ -96,20 +96,37 @@ erreurs d'estimation.
 `app.py` affiche les prochains matchs, les prédictions en %, les **alertes value
 bets** en évidence et la **mise recommandée** selon la bankroll saisie.
 
-## Utilisation
+## Utilisation locale
 
 ```bash
-pip install -r requirements-ml.txt
+pip install -r requirements.txt
 
-# 1) Entraîner + valider le modèle (backtest walk-forward affiché)
-python train.py
-
-# 2) (optionnel) cotes en direct : clé gratuite sur the-odds-api.com
+# (optionnel) cotes en direct : clé gratuite sur the-odds-api.com
 export THE_ODDS_API_KEY=ta_cle      # ou dans le fichier .env
 
-# 3) Lancer l'interface temps réel
+# Lancer l'application (le modèle s'entraîne automatiquement au 1er lancement)
 streamlit run app.py
 ```
+
+Pour réentraîner/valider explicitement le modèle (backtest walk-forward affiché) :
+`python train.py`.
+
+## Déploiement en ligne (Streamlit Cloud, gratuit)
+
+1. Pousser le dépôt sur GitHub.
+2. Aller sur [share.streamlit.io](https://share.streamlit.io) → **New app**.
+3. Choisir le dépôt, la branche, et le fichier principal **`app.py`**.
+4. Dans **Advanced settings → Secrets**, coller (cf.
+   `.streamlit/secrets.toml.example`) :
+   ```toml
+   THE_ODDS_API_KEY = "votre_cle"
+   ```
+5. **Deploy.** L'app s'entraîne toute seule au premier démarrage, obtient une
+   URL publique (utilisable sur mobile) et se redéploie à chaque `git push`.
+
+> Dépendances : Streamlit Cloud lit le `requirements.txt` à la racine (superset
+> bot + ML). Le modèle entraîné et le cache de données sont éphémères sur le
+> cloud : ils sont (re)générés automatiquement, donc rien à committer.
 
 Dans l'app : barre latérale → **Source des matchs = Cotes en direct (API)**,
 **Auto-refresh** activé. Sans clé, l'app bascule automatiquement sur le CSV

@@ -1,3 +1,14 @@
+# Dépendances du dépôt — superset utilisé par :
+#   - le bot Poisson historique (main.py) : requests, scipy, python-dotenv
+#   - le module ML Coupe du Monde (worldcup/, train.py, app.py)
+#   - la CI (unittest discover charge test_bot.py ET test_worldcup.py)
+#   - le déploiement Streamlit Cloud (lit ce fichier à la racine)
 requests
 scipy
 python-dotenv
+pandas
+numpy
+scikit-learn
+xgboost
+joblib
+streamlit

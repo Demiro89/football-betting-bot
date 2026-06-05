@@ -113,6 +113,14 @@ ENSEMBLE_MARKET_WEIGHT = _env_float("ENSEMBLE_MARKET_WEIGHT", 0.6)
 # Cotes en temps réel (The Odds API — https://the-odds-api.com, palier gratuit)
 # ---------------------------------------------------------------------------
 THE_ODDS_API_KEY = os.getenv("THE_ODDS_API_KEY", "")
+
+
+def get_odds_api_key() -> str:
+    """Clé The Odds API lue en direct (prend en compte les secrets injectés
+    après l'import du module, ex. Streamlit Cloud)."""
+    return os.getenv("THE_ODDS_API_KEY", "") or THE_ODDS_API_KEY
+
+
 ODDS_API_BASE = "https://api.the-odds-api.com/v4/sports"
 # Régions interrogées : plus de régions = plus de books = meilleur line shopping,
 # mais coût API plus élevé (coût = nb marchés x nb régions par requête).
