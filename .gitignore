@@ -6,3 +6,4 @@ __pycache__/
 # Module ML Coupe du Monde : artefacts générés (modèle entraîné, cache de données)
 .cache_ml/
 models/
+data/tracked_bets.csv

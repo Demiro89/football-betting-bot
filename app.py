@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""ÉTAPE 4 — Interface web Streamlit.
+"""ÉTAPE 4 — Interface web Streamlit (temps réel).
 
 Lancement :
     pip install -r requirements-ml.txt
-    python train.py            # entraîne et sauvegarde le modèle (une fois)
+    python train.py                      # entraîne et sauvegarde le modèle (une fois)
+    export THE_ODDS_API_KEY=ta_cle       # pour les cotes en direct (optionnel)
     streamlit run app.py
 
-Affiche :
-  - la liste des prochains matchs de Coupe du Monde ;
-  - les prédictions 1 / N / 2 en pourcentage ;
-  - les alertes « Value Bets » mises en évidence ;
-  - la mise recommandée (Kelly fractionné) selon la bankroll saisie.
+Fonctionnalités :
+  - Cotes EN DIRECT multi-bookmakers (The Odds API) avec LINE SHOPPING
+    (meilleure cote par issue) + auto-refresh.
+  - Prédictions 1/N/2 : modèle ML, consensus de marché, ou ensemble des deux.
+  - Alertes « Value Bets » mises en évidence + mise Kelly recommandée.
+  - Suivi CLV (Closing Line Value) et ROI réel des paris journalisés.
 
-Avertissement intégré : les paris comportent un risque de perte. L'outil aide
-à la décision, il ne garantit aucun gain.
+⚠️ Les paris comportent un risque de perte. Aucun gain n'est garanti.
 """
 
 from __future__ import annotations
@@ -23,16 +24,16 @@ from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
 
-from worldcup import config
+from worldcup import config, live_odds, tracking
 from worldcup.fixtures import load_fixtures, odds_dict
 from worldcup.model import MatchPredictor
-from worldcup.value import find_value_bets
+from worldcup.value import ensemble_probabilities, find_value_bets
 
 st.set_page_config(page_title="Coupe du Monde — Value Bets ML", page_icon="⚽", layout="wide")
 
 
 # ---------------------------------------------------------------------------
-# Chargement (mis en cache pour ne pas recharger le modèle à chaque interaction)
+# Chargement (mis en cache)
 # ---------------------------------------------------------------------------
 @st.cache_resource(show_spinner="Chargement du modèle…")
 def get_model() -> MatchPredictor | None:
@@ -41,42 +42,89 @@ def get_model() -> MatchPredictor | None:
     return MatchPredictor.load()
 
 
-@st.cache_data(show_spinner=False)
-def get_fixtures() -> pd.DataFrame:
-    return load_fixtures()
+def predictions_for(model, home, away, date, neutral, tournament, consensus, market_weight):
+    """Renvoie (probs_modele, probs_finales) selon la source de proba choisie."""
+    model_probs = model.predict_match(home, away, date, neutral, tournament)
+    final = ensemble_probabilities(model_probs, consensus, market_weight)
+    return model_probs, final
 
 
-def proba_bar(probs: dict[str, float]) -> None:
-    """Barre 1/N/2 sous forme de 3 colonnes de métriques."""
-    c1, cn, c2 = st.columns(3)
-    c1.metric("1 — Domicile", f"{probs['1']*100:.0f}%")
-    cn.metric("N — Nul", f"{probs['N']*100:.0f}%")
-    c2.metric("2 — Extérieur", f"{probs['2']*100:.0f}%")
+def render_match_card(title, subtitle, final_probs, model_probs, odds, books, bets, match_key):
+    """Affiche une carte de match avec prédictions, cotes et value bets."""
+    with st.container(border=True):
+        st.subheader(title)
+        st.caption(subtitle)
+        c1, cn, c2 = st.columns(3)
+        c1.metric("1 — Domicile", f"{final_probs['1']*100:.0f}%",
+                  help=f"Modèle ML seul : {model_probs['1']*100:.0f}%")
+        cn.metric("N — Nul", f"{final_probs['N']*100:.0f}%",
+                  help=f"Modèle ML seul : {model_probs['N']*100:.0f}%")
+        c2.metric("2 — Extérieur", f"{final_probs['2']*100:.0f}%",
+                  help=f"Modèle ML seul : {model_probs['2']*100:.0f}%")
+        if odds:
+            oc = st.columns(3)
+            for i, sel in enumerate(("1", "N", "2")):
+                book = books.get(sel, {}).get("book", "")
+                val = odds.get(sel)
+                oc[i].write(f"Cote {sel} : **{val if val else '—'}**"
+                            + (f"  \n*{book}*" if book else ""))
+        for j, b in enumerate(bets):
+            st.success(
+                f"💡 **Value — {b.label}** @ {b.odds} "
+                f"({books.get(b.selection, {}).get('book', 'meilleur prix')}) · "
+                f"value **+{b.edge_pct:.1f}%** · mise **{b.stake:.2f} €** "
+                f"(proba retenue {b.model_prob*100:.0f}% vs marché {b.market_prob*100:.0f}%)"
+            )
+            if st.button("📌 Suivre ce pari (CLV/ROI)", key=f"log_{match_key}_{j}"):
+                tracking.log_bet(title, b.label, b.odds, b.model_prob,
+                                 b.market_prob, b.edge_pct, b.stake)
+                st.toast(f"Pari enregistré : {b.label} @ {b.odds}", icon="✅")
 
 
 # ---------------------------------------------------------------------------
-# Barre latérale — paramètres de bankroll / stratégie
+# Barre latérale — paramètres
 # ---------------------------------------------------------------------------
 st.sidebar.title("⚙️ Paramètres")
+
+source = st.sidebar.radio("Source des matchs", ["🔴 Cotes en direct (API)", "📄 CSV local"],
+                          index=0 if config.THE_ODDS_API_KEY else 1)
+live_mode = source.startswith("🔴")
+
+prob_source = st.sidebar.selectbox(
+    "Probabilité retenue pour la value",
+    ["Ensemble (ML + marché)", "Modèle ML seul", "Consensus marché seul"],
+)
+market_weight = config.ENSEMBLE_MARKET_WEIGHT
+if prob_source == "Ensemble (ML + marché)":
+    market_weight = st.sidebar.slider("Poids du marché dans l'ensemble", 0.0, 1.0,
+                                      float(config.ENSEMBLE_MARKET_WEIGHT), 0.05)
+elif prob_source == "Modèle ML seul":
+    market_weight = 0.0
+elif prob_source == "Consensus marché seul":
+    market_weight = 1.0
+
 bankroll = st.sidebar.number_input("Bankroll (€)", min_value=10.0, value=float(config.BANKROLL),
                                    step=10.0)
 min_value_pct = st.sidebar.slider("Seuil de value minimal (%)", 0, 30,
                                   int(config.MIN_VALUE * 100), 1)
+
+auto_refresh = st.sidebar.toggle("Auto-refresh (temps réel)", value=live_mode)
+refresh_secs = st.sidebar.slider("Intervalle de refresh (s)", 15, 180, 60, 15,
+                                 disabled=not auto_refresh)
+
 st.sidebar.caption(
-    f"Kelly fractionné : {config.KELLY_FRACTION:.0%} du Kelly plein, "
-    f"plafonné à {config.MAX_BET_FRACTION:.0%} de la bankroll."
+    f"Kelly fractionné : {config.KELLY_FRACTION:.0%} du Kelly, plafonné à "
+    f"{config.MAX_BET_FRACTION:.0%} de la bankroll."
 )
 st.sidebar.divider()
-st.sidebar.info(
-    "Mise responsable : ne pariez que de l'argent que vous pouvez perdre. "
-    "Aucun modèle ne garantit de gain."
-)
+st.sidebar.info("Pariez de façon responsable : uniquement de l'argent que vous "
+                "pouvez perdre. Aucun modèle ne garantit de gain.")
 
 # ---------------------------------------------------------------------------
 # En-tête
 # ---------------------------------------------------------------------------
-st.title("⚽ Coupe du Monde — Détecteur de Value Bets (ML)")
-st.caption("Random Forest / XGBoost calibré · stratégie de value betting · gestion Kelly")
+st.title("⚽ Coupe du Monde — Détecteur de Value Bets (ML + temps réel)")
+st.caption("XGBoost calibré · line shopping multi-books · consensus de marché · gestion Kelly")
 
 model = get_model()
 if model is None:
@@ -84,83 +132,145 @@ if model is None:
     st.stop()
 
 meta = model.metadata
-mc1, mc2, mc3, mc4 = st.columns(4)
-mc1.metric("Moteur", meta.get("backend", "?"))
-mc2.metric("Matchs d'entraînement", f"{meta.get('n_train', 0):,}".replace(",", " "))
-mc3.metric("Calibré", "Oui" if meta.get("calibrated") else "Non")
-mc4.metric("Données jusqu'au", meta.get("last_match_date", "?"))
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Moteur", meta.get("backend", "?"))
+m2.metric("Matchs d'entraînement", f"{meta.get('n_train', 0):,}".replace(",", " "))
+m3.metric("Calibré", "Oui" if meta.get("calibrated") else "Non")
+m4.metric("Données jusqu'au", meta.get("last_match_date", "?"))
 
-fixtures = get_fixtures()
-if fixtures.empty:
-    st.warning(f"Aucun match dans `{config.FIXTURES_CSV}`. Ajoutez-y des matchs et leurs cotes.")
-    st.stop()
+if live_mode and not config.THE_ODDS_API_KEY:
+    st.warning("`THE_ODDS_API_KEY` non définie — bascule sur le CSV local. "
+               "Ajoutez la clé (gratuite sur the-odds-api.com) pour les cotes en direct.")
+    live_mode = False
 
-# ---------------------------------------------------------------------------
-# Calcul des prédictions + value bets
-# ---------------------------------------------------------------------------
-all_value_bets: list[dict] = []
-match_blocks: list[dict] = []
-for r in fixtures.itertuples(index=False):
-    probs = model.predict_match(r.home_team, r.away_team, r.date, bool(r.neutral), r.tournament)
-    odds = odds_dict(r)
-    bets = find_value_bets(probs, odds, bankroll=bankroll, min_value=min_value_pct / 100.0)
-    match_blocks.append({"row": r, "probs": probs, "odds": odds, "bets": bets})
-    for b in bets:
-        all_value_bets.append({
-            "Match": f"{r.home_team} vs {r.away_team}",
-            "Date": pd.Timestamp(r.date).strftime("%d/%m"),
-            "Pari": b.label,
-            "Cote": b.odds,
-            "Proba modèle": f"{b.model_prob*100:.0f}%",
-            "Proba marché": f"{b.market_prob*100:.0f}%",
-            "Value": f"+{b.edge_pct:.1f}%",
-            "Mise (€)": b.stake,
-        })
 
 # ---------------------------------------------------------------------------
-# Onglet 1 : alertes Value Bets (mises en évidence)
+# Construction des blocs de matchs (live ou CSV)
 # ---------------------------------------------------------------------------
-tab_value, tab_matches = st.tabs(["🔥 Value Bets", "📋 Tous les matchs"])
-
-with tab_value:
-    if all_value_bets:
-        total_stake = sum(b["Mise (€)"] for b in all_value_bets)
-        st.success(f"**{len(all_value_bets)} value bet(s)** détecté(s) · "
-                   f"total engagé recommandé : **{total_stake:.2f} €** "
-                   f"({total_stake/bankroll*100:.1f}% de la bankroll)")
-        st.dataframe(pd.DataFrame(all_value_bets), use_container_width=True, hide_index=True)
-        st.caption("Une value existe quand la proba du modèle dépasse la proba implicite "
-                   "(1/cote, marge retirée). La mise suit le critère de Kelly fractionné.")
+def build_blocks() -> list[dict]:
+    blocks: list[dict] = []
+    if live_mode:
+        rows = live_odds.live_fixtures(model.builder.known_teams())
+        for r in rows:
+            odds = {k: r[f"odd_{k}"] for k in ("1", "N", "2") if r.get(f"odd_{k}")}
+            model_probs, final = predictions_for(
+                model, r["home_team"], r["away_team"], pd.Timestamp(r["date"]),
+                r["neutral"], r["tournament"], r.get("consensus"), market_weight)
+            bets = find_value_bets(final, odds, bankroll=bankroll,
+                                   min_value=min_value_pct / 100.0)
+            blocks.append({
+                "title": f"{r['home_team_raw']} vs {r['away_team_raw']}",
+                "subtitle": f"{pd.Timestamp(r['date']):%d/%m %H:%M} · {r['tournament']} · "
+                            f"{r['n_books']} books · meilleures cotes",
+                "final": final, "model": model_probs, "odds": odds,
+                "books": r["best_odds"], "bets": bets,
+                "key": f"{r['home_team_raw']}_{r['away_team_raw']}",
+            })
     else:
-        st.info(f"Aucun value bet ≥ {min_value_pct}% avec les cotes actuelles. "
-                "C'est normal : la majorité des matchs n'offrent pas de value.")
+        fixtures = load_fixtures()
+        for r in fixtures.itertuples(index=False):
+            odds = odds_dict(r)
+            # En CSV : pas de multi-books ; on dérive un « consensus » dévigé du book unique.
+            from worldcup.value import implied_probabilities
+            consensus = implied_probabilities(odds) or None
+            model_probs, final = predictions_for(
+                model, r.home_team, r.away_team, pd.Timestamp(r.date),
+                bool(r.neutral), r.tournament, consensus, market_weight)
+            bets = find_value_bets(final, odds, bankroll=bankroll,
+                                   min_value=min_value_pct / 100.0)
+            blocks.append({
+                "title": f"{r.home_team} vs {r.away_team}",
+                "subtitle": f"{pd.Timestamp(r.date):%d/%m/%Y} · {r.tournament} · "
+                            f"{'terrain neutre' if bool(r.neutral) else 'à domicile'}",
+                "final": final, "model": model_probs, "odds": odds,
+                "books": {}, "bets": bets,
+                "key": f"{r.home_team}_{r.away_team}",
+            })
+    return blocks
 
-# ---------------------------------------------------------------------------
-# Onglet 2 : détail de tous les matchs
-# ---------------------------------------------------------------------------
-with tab_matches:
-    for block in match_blocks:
-        r = block["row"]
-        when = pd.Timestamp(r.date).strftime("%d/%m/%Y")
-        flag = "🔥 " if block["bets"] else ""
-        with st.container(border=True):
-            st.subheader(f"{flag}{r.home_team} vs {r.away_team}")
-            st.caption(f"{when} · {r.tournament} · "
-                       f"{'terrain neutre' if bool(r.neutral) else 'à domicile'}")
-            proba_bar(block["probs"])
-            if block["odds"]:
-                oc1, oc2, oc3 = st.columns(3)
-                oc1.write(f"Cote 1 : **{block['odds'].get('1', '—')}**")
-                oc2.write(f"Cote N : **{block['odds'].get('N', '—')}**")
-                oc3.write(f"Cote 2 : **{block['odds'].get('2', '—')}**")
-            for b in block["bets"]:
-                st.success(f"💡 **Value bet — {b.label}** @ {b.odds} · "
-                           f"value **+{b.edge_pct:.1f}%** · mise conseillée **{b.stake:.2f} €** "
-                           f"(modèle {b.model_prob*100:.0f}% vs marché {b.market_prob*100:.0f}%)")
+
+def render_tracking() -> None:
+    """Onglet suivi CLV / ROI (recalculé à chaque rafraîchissement)."""
+    st.subheader("Closing Line Value & ROI réel")
+    st.caption("Le CLV (cote prise vs cote de clôture) est le meilleur indicateur "
+               "AVANT d'avoir un gros échantillon : un CLV moyen positif = vous battez "
+               "le marché. Renseignez `closing_odds` et `result` dans le CSV pour l'affiner.")
+    s = tracking.summary()
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Paris suivis", s["n_total"])
+    k2.metric("CLV moyen", f"{s['avg_clv_pct']:+.2f}%" if s["avg_clv_pct"] is not None else "—",
+              help="Basé sur les paris dont la cote de clôture est renseignée.")
+    k3.metric("Paris réglés", s["n_settled"])
+    k4.metric("ROI réel", f"{s['roi_pct']:+.1f}%" if s["roi_pct"] is not None else "—")
+
+    bets = tracking.load_bets()
+    if bets:
+        st.dataframe(pd.DataFrame(bets), use_container_width=True, hide_index=True)
+        st.download_button("⬇️ Télécharger le journal (CSV)",
+                           data=config.BETS_LOG.read_text(encoding="utf-8"),
+                           file_name="tracked_bets.csv", mime="text/csv")
+    else:
+        st.info("Aucun pari suivi. Cliquez « 📌 Suivre ce pari » sur une value bet.")
+    if s["n_settled"] < 30:
+        st.warning("Moins de 30 paris réglés : le ROI n'est pas encore significatif. "
+                   "Pilotez d'abord sur le CLV.")
+
+
+@st.fragment(run_every=(refresh_secs if auto_refresh else None))
+def render_board():
+    """Tableau de bord rafraîchi automatiquement en mode temps réel.
+
+    Le fragment crée ses propres onglets à chaque exécution : l'auto-refresh
+    remplace proprement le contenu sans le dupliquer.
+    """
+    blocks = build_blocks()
+    st.caption(f"Dernière mise à jour : {datetime.now(timezone.utc):%H:%M:%S UTC} · "
+               f"{len(blocks)} match(s)" + (" · 🔴 LIVE" if live_mode else ""))
+
+    tab_value, tab_matches, tab_track = st.tabs(
+        ["🔥 Value Bets", "📋 Tous les matchs", "📈 Suivi CLV / ROI"])
+
+    all_bets = []
+    for blk in blocks:
+        for b in blk["bets"]:
+            all_bets.append({
+                "Match": blk["title"], "Pari": b.label, "Cote": b.odds,
+                "Book": blk["books"].get(b.selection, {}).get("book", "—"),
+                "Proba retenue": f"{b.model_prob*100:.0f}%",
+                "Proba marché": f"{b.market_prob*100:.0f}%",
+                "Value": f"+{b.edge_pct:.1f}%", "Mise (€)": b.stake,
+            })
+
+    with tab_value:
+        if not blocks:
+            st.info("Aucun match coté pour le moment (hors-saison ou clé/quota). "
+                    "Réessayez plus tard ou basculez sur le CSV local.")
+        elif all_bets:
+            total = sum(b["Mise (€)"] for b in all_bets)
+            st.success(f"**{len(all_bets)} value bet(s)** · total engagé conseillé : "
+                       f"**{total:.2f} €** ({total/bankroll*100:.1f}% de la bankroll)")
+            st.dataframe(pd.DataFrame(all_bets), use_container_width=True, hide_index=True)
+            st.caption("Value = proba retenue × meilleure cote − 1. Mise = Kelly fractionné. "
+                       "« Book » indique où obtenir le meilleur prix (line shopping).")
+        else:
+            st.info(f"Aucun value bet ≥ {min_value_pct}% actuellement. "
+                    "C'est normal : la plupart des matchs n'offrent pas de value.")
+
+    with tab_matches:
+        for blk in blocks:
+            flag = "🔥 " if blk["bets"] else ""
+            render_match_card(flag + blk["title"], blk["subtitle"], blk["final"],
+                              blk["model"], blk["odds"], blk["books"], blk["bets"], blk["key"])
+
+    with tab_track:
+        render_tracking()
+
+
+render_board()
 
 st.divider()
 st.caption(
     f"Généré le {datetime.now(timezone.utc):%d/%m/%Y %H:%M UTC}. "
-    "⚠️ Les paris sportifs comportent un risque de perte financière. "
-    "Suivez votre ROI réel et arrêtez si le modèle perd de l'argent sur ≥ 30 paris."
+    "⚠️ Les paris sportifs comportent un risque de perte. Suivez votre CLV/ROI et "
+    "arrêtez si le modèle perd de l'argent."
 )

@@ -6,3 +6,5 @@ scikit-learn
 xgboost
 joblib
 streamlit
+requests          # cotes en direct (The Odds API)
+python-dotenv     # lecture des clés depuis .env (optionnel)

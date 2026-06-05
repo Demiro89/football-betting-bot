@@ -35,6 +35,32 @@ def implied_probabilities(odds: dict[str, float]) -> dict[str, float]:
     return {k: v / overround for k, v in inv.items()}
 
 
+def ensemble_probabilities(
+    model_probs: dict[str, float],
+    consensus_probs: dict[str, float] | None,
+    market_weight: float | None = None,
+) -> dict[str, float]:
+    """Combine la proba du modèle ML et le consensus de marché.
+
+    Le consensus multi-books (dévigé) est un estimateur très solide ; on
+    l'utilise comme ancre et le modèle apporte sa correction. Si le consensus
+    est indisponible (pas de cotes), on retombe sur le modèle seul. Le résultat
+    est renormalisé pour sommer à 1.
+    """
+    w = config.ENSEMBLE_MARKET_WEIGHT if market_weight is None else market_weight
+    if not consensus_probs:
+        return dict(model_probs)
+    blended = {}
+    for sel in config.OUTCOMES:
+        m = float(model_probs.get(sel, 0.0))
+        c = float(consensus_probs.get(sel, 0.0))
+        blended[sel] = w * c + (1 - w) * m
+    total = sum(blended.values())
+    if total <= 0:
+        return dict(model_probs)
+    return {k: v / total for k, v in blended.items()}
+
+
 def kelly_stake(prob: float, odds: float, bankroll: float) -> float:
     """Mise via Kelly fractionné plafonné. Renvoie 0 si pari déconseillé.
 

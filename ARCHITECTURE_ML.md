@@ -1,13 +1,27 @@
 # Module ML — Value Betting Coupe du Monde
 
 Application de détection de **value bets** orientée Coupe du Monde, basée sur un
-modèle de **Machine Learning** (XGBoost / Random Forest) et une interface
-**Streamlit**. Ce module est **autonome** : il cohabite avec le bot Poisson
-historique (`main.py`) sans interférer.
+modèle de **Machine Learning** (XGBoost / Random Forest), des **cotes en temps
+réel multi-bookmakers** et une interface **Streamlit**. Ce module est
+**autonome** : il cohabite avec le bot Poisson historique (`main.py`) sans
+interférer.
 
-> ⚠️ **Avertissement.** Les paris sportifs comportent un risque réel de perte.
-> Cet outil maximise l'espérance de gain sur le long terme via une analyse
-> stricte ; il ne garantit **aucun** résultat. Pariez de façon responsable.
+> ⚠️ **Avertissement honnête.** Les paris sportifs comportent un risque réel de
+> perte et **personne ne garantit un « taux de réussite élevé »**. Les
+> bookmakers ont des modèles redoutables et la plupart des parieurs perdent. Ce
+> projet met en place les **edges réels et prouvés** que les professionnels
+> utilisent (line shopping, lignes sharp/soft, CLV) pour maximiser l'espérance
+> sur le long terme — pas pour promettre des gains. Pariez de façon responsable.
+
+## Comment on cherche à battre les bookmakers (edges réels)
+
+| Levier | Fichier | Pourquoi ça marche |
+|---|---|---|
+| **Line shopping** | `live_odds.best_odds` | Prendre systématiquement la meilleure cote parmi tous les books ajoute plusieurs % d'EV, sans pari supplémentaire. L'edge le plus fiable. |
+| **Consensus de marché** | `live_odds.consensus_probabilities` | Moyenne dévigée de plusieurs books ≈ vraie probabilité. Détecter un book qui s'en écarte (sharp/soft) est la stratégie pro la plus rentable. |
+| **Ensemble ML + marché** | `value.ensemble_probabilities` | On ancre la proba sur le marché (dur à battre) et le ML corrige : moins de faux signaux que le ML seul. |
+| **CLV (Closing Line Value)** | `tracking` | Seul indicateur fiable AVANT d'avoir un gros échantillon : un CLV moyen positif prouve qu'on bat le marché. |
+| **Kelly fractionné** | `value.kelly_stake` | Dimensionne la mise pour survivre à la variance et aux erreurs d'estimation. |
 
 ## Vue d'ensemble
 
@@ -90,11 +104,23 @@ pip install -r requirements-ml.txt
 # 1) Entraîner + valider le modèle (backtest walk-forward affiché)
 python train.py
 
-# 2) Lancer l'interface
+# 2) (optionnel) cotes en direct : clé gratuite sur the-odds-api.com
+export THE_ODDS_API_KEY=ta_cle      # ou dans le fichier .env
+
+# 3) Lancer l'interface temps réel
 streamlit run app.py
 ```
 
-Éditez `data/wc2026_fixtures.csv` pour vos matchs et leurs cotes :
+Dans l'app : barre latérale → **Source des matchs = Cotes en direct (API)**,
+**Auto-refresh** activé. Sans clé, l'app bascule automatiquement sur le CSV
+local.
+
+**Mode temps réel.** L'app interroge The Odds API (compétitions configurables
+via `SPORT_KEYS`), applique le line shopping et le consensus, puis se rafraîchit
+toutes les *N* secondes (`st.fragment`). Les réponses API sont mises en cache
+`ODDS_TTL_SECONDS` pour ne pas brûler le quota gratuit (500 requêtes/mois).
+
+Éditez sinon `data/wc2026_fixtures.csv` pour vos matchs et leurs cotes :
 
 ```csv
 date,home_team,away_team,neutral,tournament,odd_1,odd_N,odd_2
