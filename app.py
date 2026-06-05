@@ -326,8 +326,71 @@ def _render_ticket(t: tickets.Ticket, key_prefix: str = "ticket") -> None:
             st.toast(f"Ticket {t.kind} enregistré (cote {t.combined_odds:.2f})", icon="✅")
 
 
+def _confidence_legs(blocks, min_conf: float):
+    """Pour chaque match fiable, la sélection la plus probable selon le modèle,
+    si sa proba >= seuil et qu'une cote existe. Triées par confiance décroissante."""
+    picks = []
+    for blk in blocks:
+        if not blk.get("reliable", True) or not blk["odds"]:
+            continue
+        market = implied_probabilities(blk["odds"])
+        # Issue la plus probable PARMI celles qui ont une cote.
+        best_sel = max((s for s in ("1", "N", "2") if blk["odds"].get(s)),
+                       key=lambda s: blk["final"].get(s, 0.0), default=None)
+        if best_sel is None:
+            continue
+        p = blk["final"].get(best_sel, 0.0)
+        if p < min_conf:
+            continue
+        picks.append(tickets.TicketLeg(
+            match=blk["title"], selection=best_sel,
+            label=config.OUTCOME_LABELS[best_sel], odds=float(blk["odds"][best_sel]),
+            model_prob=float(p), market_prob=float(market.get(best_sel, 0.0))))
+    picks.sort(key=lambda leg: leg.model_prob, reverse=True)
+    return picks
+
+
+def render_confidence_coupon(blocks, bankroll: float) -> None:
+    """Coupon « haute confiance » : matchs où le modèle est le plus sûr (live)."""
+    st.subheader("🎯 Coupon haute confiance (taux de réussite estimé élevé)")
+    st.caption("Les sélections où le modèle est le PLUS sûr, en direct. "
+               "⚠️ Taux de réussite élevé ≠ rentable : ce sont souvent des favoris "
+               "à petite cote. Et combiner FAIT BAISSER le taux de réussite.")
+    c1, c2 = st.columns(2)
+    min_conf = c1.slider("Confiance minimale (%)", 50, 90, 65, 5,
+                         key="conf_min") / 100.0
+    n_legs = c2.slider("Matchs dans le combiné", 2, 6, 3, 1, key="conf_legs")
+
+    picks = _confidence_legs(blocks, min_conf)
+    if not picks:
+        st.info(f"Aucune sélection ≥ {min_conf*100:.0f}% de confiance sur les matchs "
+                "cotés actuellement (équipes reconnues). Baisse le seuil ou reviens plus tard.")
+        return
+
+    st.markdown(f"**{len(picks)} sélection·s** au-dessus de {min_conf*100:.0f}% de confiance :")
+    st.dataframe(pd.DataFrame([{
+        "Match": leg.match, "Pari": leg.label, "Cote": leg.odds,
+        "Taux de réussite estimé": f"{leg.model_prob*100:.0f}%",
+        "Value": f"{(leg.model_prob*leg.odds-1)*100:+.1f}%",
+    } for leg in picks]), use_container_width=True, hide_index=True)
+
+    chosen = picks[:n_legs]
+    if len(chosen) >= 2:
+        combo = tickets.build_ticket(chosen, bankroll=bankroll, kind="combiné")
+        success = combo.model_prob * 100
+        st.markdown(f"#### 🎫 Combiné des {len(chosen)} plus sûrs")
+        st.warning(f"Taux de réussite estimé du combiné : **{success:.0f}%** "
+                   f"(produit des {len(chosen)} probas — il faut que TOUS passent). "
+                   f"Cote totale **{combo.combined_odds:.2f}**.")
+        _render_ticket(combo, key_prefix="confidence")
+        st.caption("Compare bien : 1 seul pari = taux de réussite le plus haut. "
+                   "Chaque match ajouté multiplie le risque.")
+
+
 def render_tickets(blocks, bankroll: float) -> None:
-    """Onglet Tickets : propositions automatiques + constructeur manuel."""
+    """Onglet Tickets : coupon haute confiance + propositions value + constructeur."""
+    render_confidence_coupon(blocks, bankroll)
+    st.divider()
     legs = _value_legs(blocks)
 
     st.subheader("🎯 Tickets simples recommandés")
