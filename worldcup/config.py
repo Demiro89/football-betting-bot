@@ -127,14 +127,20 @@ ODDS_API_BASE = "https://api.the-odds-api.com/v4/sports"
 ODDS_REGIONS = os.getenv("ODDS_REGIONS", "eu,uk")
 ODDS_TTL_SECONDS = _env_int("ODDS_TTL_SECONDS", 120)   # cache cotes (anti-spam quota)
 
-# Compétitions interrogées en live. La clé Coupe du Monde n'est active sur
-# The Odds API qu'à l'approche du tournoi ; on garde aussi les grands
-# championnats pour que l'app soit utile toute l'année.
+# Compétitions interrogées en live. IMPORTANT : le modèle est entraîné UNIQUEMENT
+# sur les matchs entre SÉLECTIONS NATIONALES. On n'interroge donc QUE des
+# compétitions internationales — interroger des championnats de clubs (Premier
+# League, Liga…) produirait des prédictions absurdes (équipes inconnues du modèle).
 SPORT_KEYS = [k.strip() for k in os.getenv(
     "SPORT_KEYS",
-    "soccer_fifa_world_cup,soccer_uefa_european_championship,"
-    "soccer_epl,soccer_spain_la_liga,soccer_italy_serie_a,"
-    "soccer_germany_bundesliga,soccer_france_ligue_one",
+    "soccer_fifa_world_cup,"
+    "soccer_uefa_european_championship,"
+    "soccer_uefa_nations_league,"
+    "soccer_conmebol_copa_america,"
+    "soccer_africa_cup_of_nations,"
+    "soccer_uefa_euro_qualification,"
+    "soccer_fifa_world_cup_qualifiers_conmebol,"
+    "soccer_fifa_world_cup_qualifiers_europe",
 ).split(",") if k.strip()]
 
 # Libellés des issues (ordre = labels 0/1/2 du modèle).

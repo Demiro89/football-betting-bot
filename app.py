@@ -94,11 +94,16 @@ def predictions_for(model, home, away, date, neutral, tournament, consensus, mar
     return model_probs, final
 
 
-def render_match_card(title, subtitle, final_probs, model_probs, odds, books, bets, match_key):
+def render_match_card(title, subtitle, final_probs, model_probs, odds, books, bets,
+                      match_key, reliable=True):
     """Affiche une carte de match avec prédictions, cotes et value bets."""
     with st.container(border=True):
         st.subheader(title)
         st.caption(subtitle)
+        if not reliable:
+            st.warning("⚠️ Équipe(s) non reconnue(s) par le modèle (entraîné sur les "
+                       "sélections nationales). Prédiction **non fiable** — aucun pari "
+                       "proposé sur ce match.")
         c1, cn, c2 = st.columns(3)
         c1.metric("1 — Domicile", f"{final_probs['1']*100:.0f}%",
                   help=f"Modèle ML seul : {model_probs['1']*100:.0f}%")
@@ -174,6 +179,9 @@ st.caption("XGBoost calibré · line shopping multi-books · consensus de march�
 
 model = _MODEL
 meta = model.metadata
+# Sélections connues du modèle (entraîné sur les matchs internationaux) :
+# sert à écarter les équipes non reconnues (clubs, noms non rapprochés).
+KNOWN_TEAMS = set(model.builder.known_teams())
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Moteur", meta.get("backend", "?"))
 m2.metric("Matchs d'entraînement", f"{meta.get('n_train', 0):,}".replace(",", " "))
@@ -196,17 +204,21 @@ def build_blocks() -> list[dict]:
         rows = live_odds.live_fixtures(model.builder.known_teams())
         for r in rows:
             odds = {k: r[f"odd_{k}"] for k in ("1", "N", "2") if r.get(f"odd_{k}")}
+            # Garde-fou : le modèle n'a appris QUE sur les sélections nationales.
+            # Si une équipe n'est pas reconnue (club, nom non rapproché), on
+            # n'invente AUCUN pari : prédiction non fiable.
+            reliable = (r["home_team"] in KNOWN_TEAMS and r["away_team"] in KNOWN_TEAMS)
             model_probs, final = predictions_for(
                 model, r["home_team"], r["away_team"], pd.Timestamp(r["date"]),
                 r["neutral"], r["tournament"], r.get("consensus"), market_weight)
             bets = find_value_bets(final, odds, bankroll=bankroll,
-                                   min_value=min_value_pct / 100.0)
+                                   min_value=min_value_pct / 100.0) if reliable else []
             blocks.append({
                 "title": f"{r['home_team_raw']} vs {r['away_team_raw']}",
                 "subtitle": f"{pd.Timestamp(r['date']):%d/%m %H:%M} · {r['tournament']} · "
                             f"{r['n_books']} books · meilleures cotes",
                 "final": final, "model": model_probs, "odds": odds,
-                "books": r["best_odds"], "bets": bets,
+                "books": r["best_odds"], "bets": bets, "reliable": reliable,
                 "key": f"{r['home_team_raw']}_{r['away_team_raw']}",
             })
     else:
@@ -214,19 +226,19 @@ def build_blocks() -> list[dict]:
         for r in fixtures.itertuples(index=False):
             odds = odds_dict(r)
             # En CSV : pas de multi-books ; on dérive un « consensus » dévigé du book unique.
-            from worldcup.value import implied_probabilities
             consensus = implied_probabilities(odds) or None
+            reliable = (r.home_team in KNOWN_TEAMS and r.away_team in KNOWN_TEAMS)
             model_probs, final = predictions_for(
                 model, r.home_team, r.away_team, pd.Timestamp(r.date),
                 bool(r.neutral), r.tournament, consensus, market_weight)
             bets = find_value_bets(final, odds, bankroll=bankroll,
-                                   min_value=min_value_pct / 100.0)
+                                   min_value=min_value_pct / 100.0) if reliable else []
             blocks.append({
                 "title": f"{r.home_team} vs {r.away_team}",
                 "subtitle": f"{pd.Timestamp(r.date):%d/%m/%Y} · {r.tournament} · "
                             f"{'terrain neutre' if bool(r.neutral) else 'à domicile'}",
                 "final": final, "model": model_probs, "odds": odds,
-                "books": {}, "bets": bets,
+                "books": {}, "bets": bets, "reliable": reliable,
                 "key": f"{r.home_team}_{r.away_team}",
             })
     return blocks
@@ -274,6 +286,8 @@ def _all_legs(blocks) -> dict[str, tickets.TicketLeg]:
     """Toutes les issues cotées (pour construire un ticket à la main)."""
     out: dict[str, tickets.TicketLeg] = {}
     for blk in blocks:
+        if not blk.get("reliable", True):
+            continue  # pas d'équipe inconnue dans le constructeur
         market = implied_probabilities(blk["odds"])
         for sel in ("1", "N", "2"):
             odd = blk["odds"].get(sel)
@@ -410,9 +424,10 @@ def render_board():
 
     with tab_matches:
         for blk in blocks:
-            flag = "🔥 " if blk["bets"] else ""
+            flag = "🔥 " if blk["bets"] else ("⚠️ " if not blk.get("reliable", True) else "")
             render_match_card(flag + blk["title"], blk["subtitle"], blk["final"],
-                              blk["model"], blk["odds"], blk["books"], blk["bets"], blk["key"])
+                              blk["model"], blk["odds"], blk["books"], blk["bets"],
+                              blk["key"], reliable=blk.get("reliable", True))
 
     with tab_track:
         render_tracking()
