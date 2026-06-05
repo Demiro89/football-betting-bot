@@ -83,6 +83,13 @@ class EloFormBuilder:
         weight: float,
     ) -> dict[str, float]:
         """Vecteur de features PRÉ-match (n'utilise que l'état passé)."""
+        # Normalisation de la date : les cotes en direct arrivent avec fuseau
+        # horaire (tz-aware) alors que l'historique est sans fuseau (tz-naive).
+        # On retire le fuseau pour permettre la soustraction des dates.
+        date = pd.Timestamp(date)
+        if date.tzinfo is not None:
+            date = date.tz_localize(None)
+
         hs, as_ = self._state[home], self._state[away]
         home_adv = 0.0 if neutral else config.ELO_HOME_ADV
         elo_diff = (hs.elo + home_adv) - as_.elo
@@ -93,7 +100,7 @@ class EloFormBuilder:
         def _rest(st: _TeamState) -> float:
             if st.last_date is None:
                 return 30.0  # repos « par défaut » si premier match observé
-            return min((date - st.last_date).days, 365)
+            return min((date - pd.Timestamp(st.last_date)).days, 365)
 
         return {
             "elo_diff": elo_diff,

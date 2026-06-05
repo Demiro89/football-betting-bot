@@ -108,6 +108,15 @@ class TestModel(unittest.TestCase):
             self.assertGreaterEqual(p, 0.0)
             self.assertLessEqual(p, 1.0)
 
+    def test_predict_with_tz_aware_date(self):
+        """Les cotes en direct fournissent des dates avec fuseau (tz-aware) :
+        la prédiction ne doit pas planter (régression mode live)."""
+        df = _synthetic_history(300)
+        model = MatchPredictor().fit(df, calibrate=True)
+        d = pd.Timestamp("2002-06-14T18:00:00+00:00")  # tz-aware (UTC)
+        probs = model.predict_match("T0", "T1", d, neutral=True)
+        self.assertAlmostEqual(sum(probs.values()), 1.0, places=4)
+
     def test_save_and_load_roundtrip(self):
         import tempfile
         from pathlib import Path
