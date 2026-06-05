@@ -5,7 +5,11 @@ __pycache__/
 .cache/
 # Module ML Coupe du Monde : artefacts générés (modèle entraîné, cache de données)
 .cache_ml/
-models/
+# On ignore le contenu de models/ SAUF le modèle pré-entraîné livré pour un
+# démarrage instantané sur Streamlit Cloud (la négation exige d'exclure le
+# contenu `models/*`, pas le dossier lui-même).
+models/*
+!models/wc_model.joblib
 data/tracked_bets.csv
 # Secrets Streamlit (ne jamais committer ; garder uniquement le .example)
 .streamlit/secrets.toml

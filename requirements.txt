@@ -3,12 +3,16 @@
 #   - le module ML Coupe du Monde (worldcup/, train.py, app.py)
 #   - la CI (unittest discover charge test_bot.py ET test_worldcup.py)
 #   - le déploiement Streamlit Cloud (lit ce fichier à la racine)
+#
+# Versions ML ÉPINGLÉES : le modèle pré-entraîné (models/wc_model.joblib) est
+# sérialisé avec ces versions ; les figer garantit qu'il se recharge à l'identique
+# sur Streamlit Cloud (sinon erreur de désérialisation).
 requests
-scipy
 python-dotenv
-pandas
-numpy
-scikit-learn
-xgboost
-joblib
+scipy==1.17.1
+pandas==3.0.3
+numpy==2.4.6
+scikit-learn==1.9.0
+xgboost==3.2.0
+joblib==1.5.3
 streamlit

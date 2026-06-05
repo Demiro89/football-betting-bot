@@ -53,21 +53,34 @@ st.set_page_config(page_title="Coupe du Monde — Value Bets ML", page_icon="⚽
 # ---------------------------------------------------------------------------
 @st.cache_resource(show_spinner=False)
 def get_model() -> MatchPredictor:
-    """Charge le modèle ; l'entraîne automatiquement s'il n'existe pas encore.
+    """Charge le modèle pré-entraîné livré dans le dépôt (chargement instantané).
 
-    Rend l'app auto-suffisante sur Streamlit Cloud (aucun `train.py` manuel).
+    Repli : s'il est absent, entraîne à la volée. Le modèle versionné
+    (models/wc_model.joblib) évite tout calcul lourd au démarrage du cloud.
     """
     if config.MODEL_FILE.exists():
         return MatchPredictor.load()
-    with st.spinner("Premier lancement : entraînement du modèle (téléchargement "
-                    "des données + apprentissage, ~20 s)…"):
+    # Repli (modèle non livré) : entraînement à la volée.
+    with st.spinner("Premier lancement : entraînement du modèle "
+                    "(téléchargement des données + apprentissage)…"):
         df = data.load_results()
         predictor = MatchPredictor().fit(df, calibrate=True)
         try:
             predictor.save()
         except OSError:
-            pass  # système de fichiers en lecture seule : on garde le modèle en mémoire
+            pass  # système de fichiers en lecture seule : modèle gardé en mémoire
     return predictor
+
+
+# Chargement protégé : en cas d'échec, on affiche l'erreur au lieu d'un écran blanc.
+try:
+    _MODEL = get_model()
+except Exception as _exc:  # noqa: BLE001
+    st.error("❌ Impossible de charger le modèle de prédiction.\n\n"
+             f"Détail technique : `{type(_exc).__name__}: {_exc}`\n\n"
+             "Si le problème persiste, ouvre **Manage app → logs** et envoie "
+             "le message d'erreur.")
+    st.stop()
 
 
 def predictions_for(model, home, away, date, neutral, tournament, consensus, market_weight):
@@ -155,7 +168,7 @@ st.sidebar.info("Pariez de façon responsable : uniquement de l'argent que vous 
 st.title("⚽ Coupe du Monde — Détecteur de Value Bets (ML + temps réel)")
 st.caption("XGBoost calibré · line shopping multi-books · consensus de marché · gestion Kelly")
 
-model = get_model()
+model = _MODEL
 meta = model.metadata
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Moteur", meta.get("backend", "?"))
