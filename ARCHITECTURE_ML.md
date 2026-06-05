@@ -164,3 +164,19 @@ Les noms d'équipes doivent correspondre à ceux du jeu de données (ex.
 python -m unittest test_worldcup -v   # tests du module ML (offline)
 python -m unittest discover -v        # toute la suite du dépôt
 ```
+
+## Robot d'auto-mise à jour du modèle
+
+Le workflow `.github/workflows/retrain.yml` réentraîne le modèle **chaque
+semaine** (lundi 04h00 UTC) : il retélécharge les données internationales
+fraîches, relance l'entraînement + le backtest, et met à jour
+`models/wc_model.joblib` dans le dépôt. L'app Streamlit recharge alors le modèle
+à jour automatiquement — les *prédictions* restent donc courantes, pas seulement
+les cotes.
+
+- Lancement manuel possible : onglet **Actions** → **Réentraînement hebdomadaire
+  du modèle** → **Run workflow**.
+- Le commit du modèle porte `[skip ci]` (pas de tests inutiles sur un binaire).
+- ⚠️ GitHub n'exécute les workflows planifiés que depuis la **branche par
+  défaut**. Pour activer la planification automatique, ce workflow doit se
+  trouver sur `main` (sinon, seul le lancement manuel fonctionne).

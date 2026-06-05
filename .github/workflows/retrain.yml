@@ -1,0 +1,51 @@
+name: Réentraînement hebdomadaire du modèle
+
+# Robot d'auto-mise à jour : retélécharge les données internationales fraîches,
+# réentraîne le modèle ML et met à jour models/wc_model.joblib dans le dépôt.
+# L'app Streamlit recharge alors automatiquement le modèle à jour.
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"      # tous les lundis à 04h00 UTC
+  workflow_dispatch: {}        # + bouton « Run workflow » pour lancer à la main
+
+# Autorise le workflow à committer le modèle mis à jour.
+permissions:
+  contents: write
+
+concurrency:
+  group: retrain-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Installer les dépendances
+        run: pip install -r requirements.txt
+
+      - name: Réentraîner le modèle (données fraîches + backtest)
+        run: python train.py
+
+      - name: Committer le modèle s'il a changé
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add models/wc_model.joblib
+          if git diff --staged --quiet; then
+            echo "Modèle inchangé — rien à committer."
+          else
+            git commit -m "🤖 Réentraînement hebdomadaire du modèle [skip ci]"
+            git push origin "${{ github.ref_name }}"
+            echo "Modèle mis à jour et poussé."
+          fi
