@@ -232,6 +232,26 @@ class TestTracking(unittest.TestCase):
         self.assertGreater(tracking.clv_percent(2.10, 2.00), 0)
         self.assertLess(tracking.clv_percent(1.90, 2.00), 0)
 
+    def test_log_ticket_combo(self):
+        import tempfile
+        from pathlib import Path
+        from worldcup import config
+        original = config.BETS_LOG
+        legs = [tickets.TicketLeg("A vs B", "1", "Victoire domicile", 2.0, 0.6, 0.5),
+                tickets.TicketLeg("C vs D", "2", "Victoire extérieur", 3.0, 0.5, 0.4)]
+        ticket = tickets.build_ticket(legs, bankroll=100)
+        with tempfile.TemporaryDirectory() as d:
+            config.BETS_LOG = Path(d) / "bets.csv"
+            try:
+                tracking.log_ticket(ticket)
+                rows = tracking.load_bets()
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["selection"], "combiné x2")
+                self.assertAlmostEqual(float(rows[0]["odds_taken"]), 6.0, places=2)
+                self.assertIn("A vs B", rows[0]["match"])
+            finally:
+                config.BETS_LOG = original
+
     def test_log_and_summary_roundtrip(self):
         import tempfile
         from pathlib import Path

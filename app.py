@@ -287,8 +287,13 @@ def _all_legs(blocks) -> dict[str, tickets.TicketLeg]:
     return out
 
 
-def _render_ticket(t: tickets.Ticket) -> None:
-    """Affiche une carte de ticket (simple ou combiné)."""
+def _ticket_signature(t: tickets.Ticket) -> str:
+    """Identifiant stable d'un ticket (pour la clé de bouton Streamlit)."""
+    return "|".join(f"{leg.match}-{leg.selection}" for leg in t.legs)
+
+
+def _render_ticket(t: tickets.Ticket, key_prefix: str = "ticket") -> None:
+    """Affiche une carte de ticket (simple ou combiné) + bouton de suivi."""
     legs_txt = "  +  ".join(f"**{leg.match} : {leg.label}** @ {leg.odds}" for leg in t.legs)
     with st.container(border=True):
         st.markdown(f"🎟️ **Ticket {t.kind}** ({len(t.legs)} sélection·s)")
@@ -301,6 +306,10 @@ def _render_ticket(t: tickets.Ticket) -> None:
         st.caption(f"Gain brut potentiel : **{t.potential_return:.2f} €** "
                    f"(mise {t.stake:.2f} € × cote {t.combined_odds:.2f}) · "
                    f"proba marché {t.market_prob*100:.1f}%")
+        if st.button("📌 Suivre ce ticket (CLV/ROI)",
+                     key=f"track_{key_prefix}_{_ticket_signature(t)}"):
+            tracking.log_ticket(t)
+            st.toast(f"Ticket {t.kind} enregistré (cote {t.combined_odds:.2f})", icon="✅")
 
 
 def render_tickets(blocks, bankroll: float) -> None:
@@ -312,8 +321,8 @@ def render_tickets(blocks, bankroll: float) -> None:
                "Triés par value décroissante.")
     proposals = tickets.propose_tickets(legs, bankroll=bankroll)
     if proposals["singles"]:
-        for t in proposals["singles"]:
-            _render_ticket(t)
+        for i, t in enumerate(proposals["singles"]):
+            _render_ticket(t, key_prefix=f"single{i}")
     else:
         st.info("Aucune sélection value pour le moment → aucun ticket simple à proposer.")
 
@@ -322,7 +331,7 @@ def render_tickets(blocks, bankroll: float) -> None:
     if proposals["combo"]:
         st.warning("Un combiné multiplie la marge du bookmaker ET la variance. "
                    "Mise volontairement réduite. À ne jouer que ponctuellement.")
-        _render_ticket(proposals["combo"])
+        _render_ticket(proposals["combo"], key_prefix="combo")
         if proposals["combo"].stake <= 0:
             st.caption("ℹ️ Kelly conseille ici une mise inférieure au minimum : "
                        "combiné « pour le plaisir », à ne jouer qu'avec une toute petite somme.")
@@ -347,7 +356,7 @@ def render_tickets(blocks, bankroll: float) -> None:
                      "combinable (résultats corrélés / impossible chez le bookmaker).")
         else:
             t = tickets.build_ticket(chosen, bankroll=bankroll)
-            _render_ticket(t)
+            _render_ticket(t, key_prefix="builder")
             if t.edge_pct <= 0:
                 st.warning("Ce ticket est à value négative : le modèle l'estime "
                            "perdant sur la durée. La mise conseillée est 0.")

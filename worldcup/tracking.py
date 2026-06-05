@@ -46,6 +46,27 @@ def log_bet(match: str, selection: str, odds_taken: float, model_prob: float,
         ])
 
 
+def log_ticket(ticket) -> None:
+    """Journalise un ticket (simple ou combiné) comme un pari unique.
+
+    Un combiné se suit exactement comme un pari simple : sa cote est le produit
+    des cotes des jambes, et son CLV se calcule pareil (cote prise vs clôture,
+    la clôture du combiné étant le produit des cotes de clôture des jambes).
+    Le détail des sélections est conservé dans le champ `match`.
+    """
+    description = " + ".join(f"{leg.match} [{leg.label}]" for leg in ticket.legs)
+    selection = "simple" if len(ticket.legs) == 1 else f"combiné x{len(ticket.legs)}"
+    log_bet(
+        match=description,
+        selection=selection,
+        odds_taken=ticket.combined_odds,
+        model_prob=ticket.model_prob,
+        consensus_prob=ticket.market_prob,
+        edge_pct=ticket.edge_pct,
+        stake=ticket.stake,
+    )
+
+
 def load_bets() -> list[dict]:
     """Charge le journal des paris suivis (liste de dicts)."""
     if not config.BETS_LOG.exists():
