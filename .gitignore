@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .DS_Store
 .cache/
+# Module ML Coupe du Monde : artefacts générés (modèle entraîné, cache de données)
+.cache_ml/
+models/

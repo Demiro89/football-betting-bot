@@ -3,6 +3,12 @@
 Bot de value betting football : modele de Poisson / Dixon-Coles confronte aux
 cotes d'un bookmaker (via The Odds API), avec notifications Telegram.
 
+> 🆕 **Module ML Coupe du Monde** (`worldcup/`, `train.py`, `app.py`) : une
+> seconde approche, **autonome**, basee sur un classifieur **XGBoost / Random
+> Forest** calibre et une interface **Streamlit**. Voir
+> [`ARCHITECTURE_ML.md`](ARCHITECTURE_ML.md). Demarrage rapide :
+> `pip install -r requirements-ml.txt && python train.py && streamlit run app.py`.
+
 ## Configuration
 
 Variables d'environnement requises (voir `.env.example`) :

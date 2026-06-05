@@ -1,0 +1,8 @@
+# Dépendances du module ML Coupe du Monde (worldcup/ + train.py + app.py).
+# Séparé de requirements.txt pour ne pas alourdir le bot Poisson / le workflow Actions.
+pandas
+numpy
+scikit-learn
+xgboost
+joblib
+streamlit
