@@ -40,7 +40,7 @@ except Exception:
 
 import pandas as pd  # noqa: E402
 
-from worldcup import config, data, live_odds, tickets, tracking  # noqa: E402
+from worldcup import config, data, live_odds, simulator, tickets, tracking  # noqa: E402
 from worldcup.fixtures import load_fixtures, odds_dict  # noqa: E402
 from worldcup.model import MatchPredictor  # noqa: E402
 from worldcup.value import (  # noqa: E402
@@ -376,6 +376,55 @@ def render_tickets(blocks, bankroll: float) -> None:
                            "perdant sur la durée. La mise conseillée est 0.")
 
 
+def _top_teams_by_elo(n: int = 16) -> list[str]:
+    """Les n meilleures sélections selon l'Elo du modèle (défaut du simulateur)."""
+    ranked = sorted(KNOWN_TEAMS, key=lambda t: model.builder.elo_of(t), reverse=True)
+    return ranked[:n]
+
+
+def render_simulator() -> None:
+    """Onglet simulateur de tournoi « façon Opta » (Monte-Carlo)."""
+    st.subheader("🏆 Simulateur de tournoi (méthode façon Opta)")
+    st.caption("On rejoue le tournoi des milliers de fois selon les forces du modèle "
+               "(terrain neutre, tirage aléatoire). Résultat : la probabilité, pour "
+               "chaque nation, d'atteindre chaque stade. Indicatif — basé sur notre modèle, "
+               "pas sur les données privées d'Opta.")
+
+    default = _top_teams_by_elo(16)
+    chosen = st.multiselect(
+        "Équipes en lice (choisis 8, 16 ou 32 pour un tableau parfait) :",
+        options=sorted(KNOWN_TEAMS), default=default, key="sim_teams")
+    n_sims = st.select_slider("Nombre de simulations",
+                              options=[1000, 2000, 5000, 10000, 20000],
+                              value=5000, key="sim_n")
+
+    if st.button("🎲 Lancer la simulation", key="sim_run", type="primary"):
+        if len(chosen) < 2:
+            st.warning("Choisis au moins 2 équipes.")
+        else:
+            with st.spinner(f"Simulation de {n_sims:,} tournois…".replace(",", " ")):
+                res = simulator.simulate_from_model(model, chosen, n_sims=n_sims)
+            rows = [{"Équipe": t,
+                     "Champion": v["champion"], "Finale": v["finale"],
+                     "Demi": v["demi"], "Quart": v["quart"]}
+                    for t, v in res.items()]
+            df = pd.DataFrame(rows).sort_values("Champion", ascending=False).reset_index(drop=True)
+            st.session_state["sim_result"] = df
+
+    df = st.session_state.get("sim_result")
+    if df is not None:
+        st.markdown("#### 🥇 Probabilité de remporter le tournoi")
+        st.bar_chart(df.set_index("Équipe")["Champion"], height=320)
+        show = df.copy()
+        for col in ("Champion", "Finale", "Demi", "Quart"):
+            show[col] = (show[col] * 100).map(lambda x: f"{x:.1f}%")
+        st.dataframe(show, use_container_width=True, hide_index=True)
+        st.caption("« Champion » = remporte le tournoi · « Finale/Demi/Quart » = "
+                   "atteint au moins ce stade. Les colonnes Champion somment à ~100 %.")
+    else:
+        st.info("Choisis tes équipes puis clique « Lancer la simulation ».")
+
+
 @st.fragment(run_every=(refresh_secs if auto_refresh else None))
 def render_board():
     """Tableau de bord rafraîchi automatiquement en mode temps réel.
@@ -387,8 +436,9 @@ def render_board():
     st.caption(f"Dernière mise à jour : {datetime.now(timezone.utc):%H:%M:%S UTC} · "
                f"{len(blocks)} match(s)" + (" · 🔴 LIVE" if live_mode else ""))
 
-    tab_value, tab_tickets, tab_matches, tab_track = st.tabs(
-        ["🔥 Value Bets", "🎟️ Tickets", "📋 Tous les matchs", "📈 Suivi CLV / ROI"])
+    tab_value, tab_tickets, tab_sim, tab_matches, tab_track = st.tabs(
+        ["🔥 Value Bets", "🎟️ Tickets", "🏆 Simulateur",
+         "📋 Tous les matchs", "📈 Suivi CLV / ROI"])
 
     all_bets = []
     for blk in blocks:
@@ -421,6 +471,9 @@ def render_board():
             st.info("Aucun match coté pour le moment.")
         else:
             render_tickets(blocks, bankroll)
+
+    with tab_sim:
+        render_simulator()
 
     with tab_matches:
         for blk in blocks:

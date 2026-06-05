@@ -226,6 +226,29 @@ class TestTickets(unittest.TestCase):
         self.assertEqual(len(out["combo"].legs), 2)
 
 
+class TestSimulator(unittest.TestCase):
+    def test_win_prob_complementary(self):
+        from worldcup import simulator
+        m = MatchPredictor().fit(_synthetic_history(400), calibrate=True)
+        probs = simulator.pairwise_matrix(m, ["T0", "T1", "T2"])
+        self.assertAlmostEqual(probs[("T0", "T1")] + probs[("T1", "T0")], 1.0, places=6)
+        for v in probs.values():
+            self.assertGreaterEqual(v, 0.0)
+            self.assertLessEqual(v, 1.0)
+
+    def test_champion_probs_sum_to_one(self):
+        from worldcup import simulator
+        m = MatchPredictor().fit(_synthetic_history(400), calibrate=True)
+        teams = [f"T{i}" for i in range(8)]
+        res = simulator.simulate_from_model(m, teams, n_sims=2000, seed=1)
+        total = sum(v["champion"] for v in res.values())
+        self.assertAlmostEqual(total, 1.0, places=2)
+        # Chaque équipe atteint la finale moins souvent qu'elle ne va en demie.
+        for v in res.values():
+            self.assertLessEqual(v["champion"], v["finale"] + 1e-9)
+            self.assertLessEqual(v["finale"], v["demi"] + 1e-9)
+
+
 class TestTracking(unittest.TestCase):
     def test_clv_positive_when_beating_close(self):
         # Cote prise 2.10, clôture 2.00 => on a pris mieux => CLV > 0.
