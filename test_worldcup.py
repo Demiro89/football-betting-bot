@@ -13,7 +13,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from worldcup import live_odds, tracking, value
+from worldcup import live_odds, tickets, tracking, value
 from worldcup.features import FEATURE_COLUMNS, EloFormBuilder
 from worldcup.model import MatchPredictor
 
@@ -188,6 +188,42 @@ class TestEnsemble(unittest.TestCase):
     def test_blend_without_consensus_returns_model(self):
         model = {"1": 0.6, "N": 0.25, "2": 0.15}
         self.assertEqual(value.ensemble_probabilities(model, None), model)
+
+
+class TestTickets(unittest.TestCase):
+    def _leg(self, match, sel="1", odds=2.0, mp=0.60, kp=0.50):
+        return tickets.TicketLeg(match=match, selection=sel, label="Victoire domicile",
+                                 odds=odds, model_prob=mp, market_prob=kp)
+
+    def test_build_ticket_multiplies_odds_and_probs(self):
+        legs = [self._leg("A vs B", odds=2.0, mp=0.6, kp=0.5),
+                self._leg("C vs D", odds=3.0, mp=0.5, kp=0.4)]
+        t = tickets.build_ticket(legs, bankroll=100)
+        self.assertAlmostEqual(t.combined_odds, 6.0, places=6)
+        self.assertAlmostEqual(t.model_prob, 0.30, places=6)   # 0.6 * 0.5
+        self.assertEqual(t.kind, "combiné")
+        # edge = 0.30 * 6 - 1 = 0.8 -> +80%
+        self.assertAlmostEqual(t.edge_pct, 80.0, places=1)
+
+    def test_single_ticket_kind(self):
+        t = tickets.build_ticket([self._leg("A vs B")], bankroll=100)
+        self.assertEqual(t.kind, "simple")
+        self.assertGreaterEqual(t.potential_return, 0.0)
+
+    def test_propose_avoids_same_match_in_combo(self):
+        # Deux jambes value sur le MÊME match ne doivent pas être combinées.
+        legs = [self._leg("A vs B", sel="1", odds=2.0, mp=0.6, kp=0.5),
+                self._leg("A vs B", sel="2", odds=2.5, mp=0.5, kp=0.45)]
+        out = tickets.propose_tickets(legs, bankroll=100)
+        self.assertEqual(len(out["singles"]), 2)
+        self.assertIsNone(out["combo"])  # une seule jambe par match -> pas de combiné
+
+    def test_propose_builds_combo_from_distinct_matches(self):
+        legs = [self._leg("A vs B", odds=2.0, mp=0.6, kp=0.5),
+                self._leg("C vs D", odds=2.0, mp=0.6, kp=0.5)]
+        out = tickets.propose_tickets(legs, bankroll=100)
+        self.assertIsNotNone(out["combo"])
+        self.assertEqual(len(out["combo"].legs), 2)
 
 
 class TestTracking(unittest.TestCase):

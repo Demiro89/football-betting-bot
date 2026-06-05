@@ -40,10 +40,14 @@ except Exception:
 
 import pandas as pd  # noqa: E402
 
-from worldcup import config, data, live_odds, tracking  # noqa: E402
+from worldcup import config, data, live_odds, tickets, tracking  # noqa: E402
 from worldcup.fixtures import load_fixtures, odds_dict  # noqa: E402
 from worldcup.model import MatchPredictor  # noqa: E402
-from worldcup.value import ensemble_probabilities, find_value_bets  # noqa: E402
+from worldcup.value import (  # noqa: E402
+    ensemble_probabilities,
+    find_value_bets,
+    implied_probabilities,
+)
 
 st.set_page_config(page_title="Coupe du Monde — Value Bets ML", page_icon="⚽", layout="wide")
 
@@ -255,6 +259,100 @@ def render_tracking() -> None:
                    "Pilotez d'abord sur le CLV.")
 
 
+def _value_legs(blocks) -> list[tickets.TicketLeg]:
+    """Jambes « value » (issues rentables) extraites de tous les matchs."""
+    legs = []
+    for blk in blocks:
+        for b in blk["bets"]:
+            legs.append(tickets.TicketLeg(
+                match=blk["title"], selection=b.selection, label=b.label,
+                odds=b.odds, model_prob=b.model_prob, market_prob=b.market_prob))
+    return legs
+
+
+def _all_legs(blocks) -> dict[str, tickets.TicketLeg]:
+    """Toutes les issues cotées (pour construire un ticket à la main)."""
+    out: dict[str, tickets.TicketLeg] = {}
+    for blk in blocks:
+        market = implied_probabilities(blk["odds"])
+        for sel in ("1", "N", "2"):
+            odd = blk["odds"].get(sel)
+            if not odd:
+                continue
+            label = f"{blk['title']} — {config.OUTCOME_LABELS[sel]} @ {odd}"
+            out[label] = tickets.TicketLeg(
+                match=blk["title"], selection=sel, label=config.OUTCOME_LABELS[sel],
+                odds=float(odd), model_prob=float(blk["final"].get(sel, 0.0)),
+                market_prob=float(market.get(sel, 1.0 / float(odd))))
+    return out
+
+
+def _render_ticket(t: tickets.Ticket) -> None:
+    """Affiche une carte de ticket (simple ou combiné)."""
+    legs_txt = "  +  ".join(f"**{leg.match} : {leg.label}** @ {leg.odds}" for leg in t.legs)
+    with st.container(border=True):
+        st.markdown(f"🎟️ **Ticket {t.kind}** ({len(t.legs)} sélection·s)")
+        st.markdown(legs_txt)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Cote totale", f"{t.combined_odds:.2f}")
+        c2.metric("Proba modèle", f"{t.model_prob*100:.0f}%")
+        c3.metric("Value", f"{t.edge_pct:+.1f}%")
+        c4.metric("Mise conseillée", f"{t.stake:.2f} €")
+        st.caption(f"Gain brut potentiel : **{t.potential_return:.2f} €** "
+                   f"(mise {t.stake:.2f} € × cote {t.combined_odds:.2f}) · "
+                   f"proba marché {t.market_prob*100:.1f}%")
+
+
+def render_tickets(blocks, bankroll: float) -> None:
+    """Onglet Tickets : propositions automatiques + constructeur manuel."""
+    legs = _value_legs(blocks)
+
+    st.subheader("🎯 Tickets simples recommandés")
+    st.caption("Approche la plus rentable : une sélection value = un ticket. "
+               "Triés par value décroissante.")
+    proposals = tickets.propose_tickets(legs, bankroll=bankroll)
+    if proposals["singles"]:
+        for t in proposals["singles"]:
+            _render_ticket(t)
+    else:
+        st.info("Aucune sélection value pour le moment → aucun ticket simple à proposer.")
+
+    st.divider()
+    st.subheader("🎲 Combiné « value » proposé (optionnel, plus risqué)")
+    if proposals["combo"]:
+        st.warning("Un combiné multiplie la marge du bookmaker ET la variance. "
+                   "Mise volontairement réduite. À ne jouer que ponctuellement.")
+        _render_ticket(proposals["combo"])
+        if proposals["combo"].stake <= 0:
+            st.caption("ℹ️ Kelly conseille ici une mise inférieure au minimum : "
+                       "combiné « pour le plaisir », à ne jouer qu'avec une toute petite somme.")
+    else:
+        st.info("Pas de combiné value pertinent (il faut au moins 2 sélections value "
+                "sur des matchs différents).")
+
+    st.divider()
+    st.subheader("🛠️ Construire mon propre ticket")
+    options = _all_legs(blocks)
+    if not options:
+        st.info("Aucune issue cotée disponible actuellement.")
+        return
+    chosen_labels = st.multiselect(
+        "Choisis tes sélections (matchs différents recommandés) :",
+        options=list(options.keys()), key="ticket_builder")
+    if chosen_labels:
+        chosen = [options[lbl] for lbl in chosen_labels]
+        matches = [leg.match for leg in chosen]
+        if len(set(matches)) < len(matches):
+            st.error("⚠️ Tu as choisi plusieurs issues d'un même match : ce n'est pas "
+                     "combinable (résultats corrélés / impossible chez le bookmaker).")
+        else:
+            t = tickets.build_ticket(chosen, bankroll=bankroll)
+            _render_ticket(t)
+            if t.edge_pct <= 0:
+                st.warning("Ce ticket est à value négative : le modèle l'estime "
+                           "perdant sur la durée. La mise conseillée est 0.")
+
+
 @st.fragment(run_every=(refresh_secs if auto_refresh else None))
 def render_board():
     """Tableau de bord rafraîchi automatiquement en mode temps réel.
@@ -266,8 +364,8 @@ def render_board():
     st.caption(f"Dernière mise à jour : {datetime.now(timezone.utc):%H:%M:%S UTC} · "
                f"{len(blocks)} match(s)" + (" · 🔴 LIVE" if live_mode else ""))
 
-    tab_value, tab_matches, tab_track = st.tabs(
-        ["🔥 Value Bets", "📋 Tous les matchs", "📈 Suivi CLV / ROI"])
+    tab_value, tab_tickets, tab_matches, tab_track = st.tabs(
+        ["🔥 Value Bets", "🎟️ Tickets", "📋 Tous les matchs", "📈 Suivi CLV / ROI"])
 
     all_bets = []
     for blk in blocks:
@@ -294,6 +392,12 @@ def render_board():
         else:
             st.info(f"Aucun value bet ≥ {min_value_pct}% actuellement. "
                     "C'est normal : la plupart des matchs n'offrent pas de value.")
+
+    with tab_tickets:
+        if not blocks:
+            st.info("Aucun match coté pour le moment.")
+        else:
+            render_tickets(blocks, bankroll)
 
     with tab_matches:
         for blk in blocks:
